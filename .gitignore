@@ -15,3 +15,8 @@ local.properties
 
 # macOS specific files
 .DS_Store
+
+# ADB & Emulator junk files
+emulator-crash-log.txt
+*.png
+screencap.png
