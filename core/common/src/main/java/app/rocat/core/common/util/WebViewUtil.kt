@@ -16,6 +16,15 @@ import app.rocat.core.common.network.NetworkHelper
 object WebViewUtil {
 
     /**
+     * A standard desktop Chrome User-Agent (Windows x64), used by the in-app browser's
+     * "Desktop mode" toggle (Tahap 25) so server-rendered / responsive sites that only
+     * expose their full interface to non-mobile clients render completely.
+     */
+    const val DESKTOP_USER_AGENT =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/141.0.0.0 Safari/537.36"
+
+    /**
      * Returns a Chrome-like User-Agent string derived from the installed WebView,
      * normalised the same way mihon does (`; Android 10; K` + dropped `Version/x.`).
      * Falls back to the shared [NetworkHelper.DEFAULT_USER_AGENT] on any failure so
@@ -29,9 +38,10 @@ object WebViewUtil {
 
     /**
      * Applies the modern WebView configuration used by mihon: JavaScript, DOM storage
-     * and the app database are enabled, wide-viewport rendering is on, popups and zoom
-     * are supported and third-party cookies are accepted. The User-Agent is pinned to
-     * [NetworkHelper]'s so JS fetch / WebView rendering see the same identity.
+     * and the app database are enabled, mixed content is allowed in compatibility mode
+     * (so SPA / heavy-JS pages never render blank), wide-viewport rendering is on, popups
+     * and zoom are supported and third-party cookies are accepted. The User-Agent is
+     * pinned to [NetworkHelper]'s so JS fetch / WebView rendering see the same identity.
      */
     @SuppressLint("SetJavaScriptEnabled")
     fun setDefaultSettings(
@@ -42,6 +52,7 @@ object WebViewUtil {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             useWideViewPort = true
             loadWithOverviewMode = true
             cacheMode = WebSettings.LOAD_DEFAULT
@@ -57,6 +68,24 @@ object WebViewUtil {
         }
 
         runCatching { CookieManager.getInstance().acceptThirdPartyCookies(webView) }
+    }
+
+    /**
+     * Toggles Desktop mode (Tahap 25.2) on an existing [WebView]: swaps the User-Agent
+     * between a standard desktop Chrome agent and the mobile [mobileUserAgent] used by
+     * the rest of the app, always keeping the wide-viewport flags on so pages re-layout
+     * responsively after the page is reloaded.
+     */
+    fun applyDesktopMode(
+        webView: WebView,
+        desktop: Boolean,
+        mobileUserAgent: String = NetworkHelper.DEFAULT_USER_AGENT,
+    ) {
+        with(webView.settings) {
+            userAgentString = if (desktop) DESKTOP_USER_AGENT else mobileUserAgent
+            useWideViewPort = true
+            loadWithOverviewMode = true
+        }
     }
 
     private fun getDefaultUserAgentString(webView: WebView): String {

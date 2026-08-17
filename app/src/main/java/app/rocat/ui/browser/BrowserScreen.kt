@@ -1,113 +1,174 @@
 package app.rocat.ui.browser
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DesktopWindows
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.rocat.core.common.util.WebViewUtil
+import app.rocat.di.AppViewModelFactory
 import app.rocat.i18n.StringKey
 import app.rocat.i18n.stringResource
 
 /**
- * Tahap 16.4: a freestyle in-app web browser tab. The user types ANY URL (or a plain
- * search query) into the free address bar and the page is rendered by a real WebView.
+ * Tahap 25: the modern in-app browser tab. A free address bar accepts ANY URL (or a
+ * plain search query), and the page is rendered by a real WebView configured for heavy
+ * JavaScript sites (SPAs, local storage, mixed content).
  *
  * Because the app's `AndroidCookieJar` is backed by the WebView [android.webkit.CookieManager],
  * every cookie set while browsing here (logins, Cloudflare `cf_clearance`, ...) is
  * automatically shared with the OkHttp stack the scraper scripts run on - so a session
  * solved in the browser is immediately available to script `fetch()` calls.
  *
- * Navigation controls (back / forward / refresh / stop) act directly on the WebView's
- * own history, exactly like a standalone browser.
+ * The top bar follows Material 3: a pill-shaped address bar with SSL lock / clear-text /
+ * Go, back/forward, a refresh↔stop button and a three-dot overflow menu (Desktop mode,
+ * reload, copy link, open in external browser). Pull-to-refresh reloads the current
+ * page, and a thin [LinearProgressIndicator] tracks [WebChromeClient] load progress.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserScreen() {
-    var urlInput by rememberSaveable { mutableStateOf(DEFAULT_HOME) }
-    var currentUrl by rememberSaveable { mutableStateOf(DEFAULT_HOME) }
-    var canGoBack by remember { mutableStateOf(false) }
-    var canGoForward by remember { mutableStateOf(false) }
-    var progress by remember { mutableStateOf(0) }
+    val viewModel: BrowserViewModel = viewModel(factory = AppViewModelFactory)
+    val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+
     var webView by remember { mutableStateOf<WebView?>(null) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var showOptions by remember { mutableStateOf(false) }
+    // Guards against re-loading the start page right after the factory has already
+    // loaded it (the AndroidView factory runs before the LaunchedEffect below).
+    var lastAppliedNonce by remember { mutableStateOf(-1) }
 
-    fun refreshNavState() {
-        webView?.let { view ->
-            canGoBack = view.canGoBack()
-            canGoForward = view.canGoForward()
-        }
-    }
+    // Captured in the composable so the non-composable callbacks below can use them.
+    val linkCopiedMessage = stringResource(StringKey.linkCopied)
 
-    val webViewClient = remember {
+    fun navState(): BrowserViewModel.NavigationState =
+        BrowserViewModel.NavigationState(
+            canGoBack = webView?.canGoBack() ?: false,
+            canGoForward = webView?.canGoForward() ?: false,
+        )
+
+    val webViewClient = remember(viewModel) {
         object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                progress = 10
-                refreshNavState()
+                viewModel.onPageStarted(url, navState())
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                url?.let { currentUrl = it }
-                view?.let { currentUrl = it.url ?: currentUrl }
-                progress = 0
-                refreshNavState()
+                viewModel.onPageFinished(url, navState())
+                isRefreshing = false
+            }
+
+            override fun onReceivedError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                error: WebResourceError?,
+            ) {
+                viewModel.refreshNavState(navState())
+                isRefreshing = false
             }
         }
     }
 
-    val chromeClient = remember {
+    val chromeClient = remember(viewModel) {
         object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                progress = if (newProgress in 1 until 100) newProgress else 0
+                viewModel.onProgressChanged(newProgress)
+                if (newProgress >= 100) isRefreshing = false
             }
         }
     }
 
-    fun navigate(raw: String) {
-        val normalized = normalizeUrl(raw)
-        currentUrl = normalized
-        urlInput = normalized
-        webView?.loadUrl(normalized)
+    // Navigation requests (address bar / search) arrive through the load nonce.
+    LaunchedEffect(state.loadNonce) {
+        if (lastAppliedNonce != state.loadNonce) {
+            lastAppliedNonce = state.loadNonce
+            webView?.loadUrl(state.currentUrl)
+        }
+    }
+
+    // Commands that must touch the live WebView (desktop-mode switch, reload).
+    LaunchedEffect(Unit) {
+        viewModel.commands.collect { command ->
+            val view = webView ?: return@collect
+            when (command) {
+                is BrowserCommand.Reload -> view.reload()
+                is BrowserCommand.SetDesktopMode -> {
+                    WebViewUtil.applyDesktopMode(view, command.enabled)
+                    view.reload()
+                }
+            }
+        }
     }
 
     // System back = go back in browser history when possible, otherwise fall through to
     // the navigation stack handled by RoCatNav.
-    BackHandler(enabled = canGoBack) { webView?.goBack() }
+    BackHandler(enabled = state.canGoBack) { webView?.goBack() }
 
     // Always tear the WebView down when the tab leaves the composition (no leaked views).
     DisposableEffect(Unit) {
@@ -118,102 +179,245 @@ fun BrowserScreen() {
         }
     }
 
+    val pullRefreshState = rememberPullToRefreshState()
+    val isSecure = Uri.parse(state.currentUrl).scheme == "https"
+
     Column(modifier = Modifier.fillMaxSize()) {
-        // Free address bar: type ANY url / search term.
+        // Material 3 top bar: back / forward, pill address bar, refresh↔stop, overflow.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 4.dp, end = 8.dp, top = 4.dp),
+                .padding(horizontal = 4.dp, vertical = 6.dp),
         ) {
-            IconButton(onClick = { webView?.goBack() }, enabled = canGoBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(StringKey.back))
+            IconButton(onClick = { webView?.goBack() }, enabled = state.canGoBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(StringKey.back),
+                )
             }
-            IconButton(onClick = { webView?.goForward() }, enabled = canGoForward) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = stringResource(StringKey.forward))
+            IconButton(onClick = { webView?.goForward() }, enabled = state.canGoForward) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = stringResource(StringKey.forward),
+                )
             }
-            OutlinedTextField(
-                value = urlInput,
-                onValueChange = { urlInput = it },
+            AddressBar(
+                value = state.urlInput,
+                isSecure = isSecure,
+                onValueChange = viewModel::onUrlInputChange,
+                onGo = viewModel::submitUrl,
+                onClear = viewModel::clearUrlInput,
+                modifier = Modifier.weight(1f),
+            )
+            if (state.isLoading) {
+                IconButton(onClick = { webView?.stopLoading() }) {
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(StringKey.stop))
+                }
+            } else {
+                IconButton(onClick = viewModel::reload) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = stringResource(StringKey.refresh),
+                    )
+                }
+            }
+            IconButton(onClick = { showOptions = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(StringKey.moreOptions))
+            }
+        }
+
+        // Thin, animated progress bar wired straight to WebChromeClient.onProgressChanged.
+        if (state.isLoading) {
+            LinearProgressIndicator(
+                progress = { state.progress / 100f },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                webView?.reload()
+            },
+            modifier = Modifier.fillMaxSize(),
+            state = pullRefreshState,
+        ) {
+            // The browser engine: a real WebView rendered through AndroidView.
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).also { view ->
+                        WebViewUtil.setDefaultSettings(view)
+                        WebViewUtil.applyDesktopMode(view, state.desktopMode)
+                        view.webViewClient = webViewClient
+                        view.webChromeClient = chromeClient
+                        webView = view
+                        lastAppliedNonce = state.loadNonce
+                        viewModel.refreshNavState(navState())
+                        view.loadUrl(state.currentUrl)
+                    }
+                },
+                update = { },
+            )
+        }
+    }
+
+    if (showOptions) {
+        BrowserOptionsSheet(
+            desktopMode = state.desktopMode,
+            onDismiss = { showOptions = false },
+            onDesktopModeChange = viewModel::setDesktopMode,
+            onReload = {
+                showOptions = false
+                viewModel.reload()
+            },
+            onCopyLink = {
+                showOptions = false
+                clipboard.setText(AnnotatedString(state.currentUrl))
+                Toast.makeText(context, linkCopiedMessage, Toast.LENGTH_SHORT).show()
+            },
+            onOpenExternal = {
+                showOptions = false
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(state.currentUrl))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            },
+        )
+    }
+}
+
+/**
+ * The pill-shaped Material 3 address bar: SSL lock indicator, the editable URL/search
+ * text, a clear-text button (when non-empty) and a Go action. Enter on a hardware
+ * keyboard and the IME "Go" key both submit.
+ */
+@Composable
+private fun AddressBar(
+    value: String,
+    isSecure: Boolean,
+    onValueChange: (String) -> Unit,
+    onGo: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.height(44.dp),
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        ) {
+            Icon(
+                imageVector = if (isSecure) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                contentDescription = stringResource(
+                    if (isSecure) StringKey.secureSite else StringKey.insecureSite,
+                ),
+                tint = if (isSecure) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp),
+            )
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
                 modifier = Modifier
                     .weight(1f)
+                    .padding(horizontal = 8.dp)
                     .onPreviewKeyEvent { event ->
                         if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
-                            navigate(urlInput)
+                            onGo()
                             true
                         } else {
                             false
                         }
                     },
                 singleLine = true,
-                label = { Text(stringResource(StringKey.urlPrompt)) },
-                leadingIcon = { Icon(Icons.Filled.Public, contentDescription = null) },
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { navigate(urlInput) }),
-                trailingIcon = {
-                    IconButton(onClick = { navigate(urlInput) }) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = stringResource(StringKey.go),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
+                keyboardActions = KeyboardActions(onGo = { onGo() }),
             )
-            if (progress > 0) {
-                IconButton(onClick = { webView?.stopLoading() }) {
-                    Icon(Icons.Filled.Stop, contentDescription = stringResource(StringKey.stop))
-                }
-            } else {
-                IconButton(onClick = { webView?.reload() }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = stringResource(StringKey.refresh))
+            if (value.isNotEmpty()) {
+                IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(StringKey.clearText),
+                        modifier = Modifier.size(16.dp),
+                    )
                 }
             }
+            IconButton(onClick = onGo, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = stringResource(StringKey.go),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
-
-        if (progress > 0 && progress < 100) {
-            LinearProgressIndicator(
-                progress = { progress / 100f },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        // The browser engine: a real WebView rendered through AndroidView.
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { context ->
-                WebView(context).also { view ->
-                    WebViewUtil.setDefaultSettings(view)
-                    view.webViewClient = webViewClient
-                    view.webChromeClient = chromeClient
-                    webView = view
-                    view.loadUrl(currentUrl)
-                }
-            },
-            update = { },
-        )
     }
 }
 
-/** Default start page opened when the browser tab is first shown. */
-private const val DEFAULT_HOME = "https://www.google.com"
-
-/** Google search used for free-text queries typed into the address bar. */
-private const val SEARCH_URL = "https://www.google.com/search?q="
-
 /**
- * Resolves arbitrary address-bar input into a loadable URL, mimicking desktop/mobile
- * browsers: "https://" is injected when missing, "www." domains are prefixed, and
- * anything that is not a URL (no dots, contains spaces, ...) becomes a web search.
+ * Elegant three-dot overflow menu (Material 3 bottom sheet): Desktop-mode switch,
+ * reload, copy link and open-in-external-browser actions.
  */
-private fun normalizeUrl(input: String): String {
-    val trimmed = input.trim()
-    if (trimmed.isEmpty()) return DEFAULT_HOME
-    val lower = trimmed.lowercase()
-    return when {
-        lower.startsWith("http://") || lower.startsWith("https://") -> trimmed
-        lower.startsWith("www.") -> "https://$trimmed"
-        !trimmed.contains(' ') && trimmed.contains('.') -> "https://$trimmed"
-        else -> SEARCH_URL + Uri.encode(trimmed)
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BrowserOptionsSheet(
+    desktopMode: Boolean,
+    onDismiss: () -> Unit,
+    onDesktopModeChange: (Boolean) -> Unit,
+    onReload: () -> Unit,
+    onCopyLink: () -> Unit,
+    onOpenExternal: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+            Text(
+                text = stringResource(StringKey.moreOptions),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
+            )
+            HorizontalDivider()
+            ListItem(
+                leadingContent = {
+                    Icon(
+                        Icons.Filled.DesktopWindows,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                },
+                headlineContent = { Text(stringResource(StringKey.desktopMode)) },
+                trailingContent = {
+                    Switch(
+                        checked = desktopMode,
+                        onCheckedChange = onDesktopModeChange,
+                    )
+                },
+                modifier = Modifier.clickable { onDesktopModeChange(!desktopMode) },
+            )
+            ListItem(
+                leadingContent = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                headlineContent = { Text(stringResource(StringKey.reload)) },
+                modifier = Modifier.clickable(onClick = onReload),
+            )
+            ListItem(
+                leadingContent = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+                headlineContent = { Text(stringResource(StringKey.copyLink)) },
+                modifier = Modifier.clickable(onClick = onCopyLink),
+            )
+            ListItem(
+                leadingContent = { Icon(Icons.Filled.OpenInNew, contentDescription = null) },
+                headlineContent = { Text(stringResource(StringKey.openInBrowser)) },
+                modifier = Modifier.clickable(onClick = onOpenExternal),
+            )
+        }
     }
 }

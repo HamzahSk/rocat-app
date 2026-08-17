@@ -86,6 +86,16 @@ enum class StringKey(val key: String) {
     refresh("refresh"),
     stop("stop"),
     forward("forward"),
+    // Tahap 25: modern in-app browser
+    moreOptions("more_options"),
+    desktopMode("desktop_mode"),
+    copyLink("copy_link"),
+    openInBrowser("open_in_browser"),
+    linkCopied("link_copied"),
+    clearText("clear_text"),
+    reload("reload"),
+    secureSite("secure_site"),
+    insecureSite("insecure_site"),
 
     // Settings screen
     settingsTitle("settings_title"),

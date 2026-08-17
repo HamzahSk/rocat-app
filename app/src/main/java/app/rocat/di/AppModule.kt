@@ -24,6 +24,7 @@ import app.rocat.scripting.HeadlessWebViewManager
 import app.rocat.scripting.RoCatBrowserBridge
 import app.rocat.scripting.api.ScriptBrowserBridge
 import app.rocat.storage.StorageManager
+import app.rocat.ui.browser.BrowserViewModel
 import app.rocat.ui.import.ImportScriptViewModel
 import app.rocat.ui.settings.SettingsViewModel
 import app.rocat.ui.scripts.ScriptsViewModel
@@ -102,6 +103,7 @@ override fun registerInjectables(registrar: Registrar) {
         registrar.addSingletonFactory { ScriptsViewModel() }
         registrar.addSingletonFactory { ImportScriptViewModel() }
         registrar.addSingletonFactory { SettingsViewModel() }
+        registrar.addSingletonFactory { BrowserViewModel() }
         registrar.addSingleton(AppViewModelFactory)
     }
 

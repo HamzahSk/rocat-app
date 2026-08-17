@@ -68,6 +68,13 @@ class SettingsRepository(context: Context) {
         get() = prefs.getString(KEY_CUSTOM_DNS_URL, "").orEmpty()
         set(value) = prefs.edit().putString(KEY_CUSTOM_DNS_URL, value).apply()
 
+    // ---- Tahap 25: In-app browser preferences ----
+
+    /** Whether the in-app browser renders with a desktop User-Agent (Desktop mode). */
+    var desktopMode: Boolean
+        get() = prefs.getBoolean(KEY_DESKTOP_MODE, false)
+        set(value) = prefs.edit().putBoolean(KEY_DESKTOP_MODE, value).apply()
+
     companion object {
         private const val PREFS_NAME = "rocat_settings"
         private const val KEY_LANGUAGE = "language"
@@ -75,5 +82,6 @@ class SettingsRepository(context: Context) {
         private const val KEY_USER_AGENT = "user_agent"
         private const val KEY_DNS_MODE = "dns_mode"
         private const val KEY_CUSTOM_DNS_URL = "custom_dns_url"
+        private const val KEY_DESKTOP_MODE = "desktop_mode"
     }
 }
