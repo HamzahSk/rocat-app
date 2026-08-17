@@ -3,8 +3,6 @@ name: Build Rocat App
 on:
   push:
     branches: [ "main", "master" ]
-    paths:
-      - '.github/workflows/build-rocat-app.yml'
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch: # Memungkinkan kamu nge-trigger build manual dari tab Actions
