@@ -1,14 +1,12 @@
 package app.rocat.ui.components
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
@@ -24,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -32,9 +31,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -96,13 +92,12 @@ fun RocatVideoPlayer(
     // Rotate + toggle the system bars whenever the full-screen flag changes.
     LaunchedEffect(isFullScreen) {
         val window = activity?.window
-        val controller = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
         if (isFullScreen) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            controller?.hide(WindowInsetsCompat.Type.systemBars())
+            window?.hideSystemBars()
         } else {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            controller?.show(WindowInsetsCompat.Type.systemBars())
+            window?.showSystemBars()
         }
     }
 
@@ -142,12 +137,17 @@ fun RocatVideoPlayer(
     }
 }
 
-/** A window-filling dialog rendering [player] in landscape with the system bars hidden. */
+/** A window-filling dialog rendering [player] in landscape with the system bars hidden.
+ *  Tahap 31: bars are hidden on the dialog window *and* (fallback) the activity window so
+ *  the playback area is truly edge-to-edge; a soft top gradient scrim keeps the exit
+ *  control legible and lets the video blend with the screen instead of looking "flat". */
 @Composable
 private fun FullScreenVideoDialog(
     player: ExoPlayer,
     onExit: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
 
     Dialog(
@@ -158,12 +158,11 @@ private fun FullScreenVideoDialog(
         ),
     ) {
         LaunchedEffect(Unit) {
-            val window = dialogWindow
-            if (window != null) {
-                WindowCompat.getInsetsController(window, window.decorView).apply {
-                    systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                    hide(WindowInsetsCompat.Type.systemBars())
-                }
+            // Immersive mode on every window we can reach. Most devices expose the
+            // dialog's own window here; if not, the hosting activity window is a safe
+            // fallback so the system bars never linger over the video.
+            listOfNotNull(dialogWindow, activity?.window).forEach { window ->
+                window.hideSystemBars()
             }
         }
 
@@ -178,6 +177,19 @@ private fun FullScreenVideoDialog(
                 },
                 update = { view -> view.player = player },
                 modifier = Modifier.fillMaxSize(),
+            )
+
+            // Subtle top scrim so the exit button stays readable over bright video.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(96.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+                        ),
+                    ),
             )
 
             IconButton(
@@ -201,11 +213,4 @@ private fun FullScreenVideoDialog(
 private fun isHlsUrl(url: String): Boolean {
     val lower = url.lowercase(Locale.ROOT)
     return lower.contains(".m3u8") || lower.startsWith("hls://")
-}
-
-/** Walks up the [ContextWrapper] chain to find the hosting [Activity]. */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }

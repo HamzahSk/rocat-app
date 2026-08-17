@@ -46,6 +46,7 @@ import app.rocat.i18n.stringResource
 import app.rocat.ui.components.AlertBannerCard
 import app.rocat.ui.components.AudioPreviewCard
 import app.rocat.ui.components.BadgeGroupCard
+import app.rocat.ui.components.CopyIconButton
 import app.rocat.ui.components.GridComponent
 import app.rocat.ui.components.HtmlPreviewCard
 import app.rocat.ui.components.ImagePreviewCard
@@ -136,7 +137,9 @@ fun ScriptCanvasScreen(
 
                             is ScriptUIComponent.Button -> ButtonComponent(
                                 label = component.label,
-                                enabled = !state.executing,
+                                // Tahap 31: the loading animation is bound to the pressed
+                                // button only; sibling buttons stay idle and enabled.
+                                loading = state.activeButton == component.functionName,
                                 onClick = { viewModel.onScriptButton(component.functionName) },
                             )
 
@@ -258,15 +261,15 @@ private fun InputComponent(
 @Composable
 private fun ButtonComponent(
     label: String,
-    enabled: Boolean,
+    loading: Boolean,
     onClick: () -> Unit,
 ) {
     Button(
         onClick = onClick,
-        enabled = enabled,
+        enabled = !loading,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
     ) {
-        if (!enabled) {
+        if (loading) {
             CircularProgressIndicator(modifier = Modifier.width(16.dp).height(16.dp))
             Spacer(Modifier.width(8.dp))
         }
@@ -281,12 +284,22 @@ private fun LogComponent(text: String) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-        )
+        Box {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+            )
+            if (text.isNotBlank()) {
+                CopyIconButton(
+                    text = text,
+                    label = stringResource(StringKey.copyText),
+                    message = stringResource(StringKey.textCopied),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                )
+            }
+        }
     }
 }
 
@@ -295,11 +308,24 @@ private fun LogComponent(text: String) {
 private fun ConsoleOutput(log: String, executing: Boolean) {
     ElevatedCard(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                stringResource(StringKey.output),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    stringResource(StringKey.output),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                if (log.isNotEmpty()) {
+                    CopyIconButton(
+                        text = log,
+                        label = stringResource(StringKey.copyText),
+                        message = stringResource(StringKey.textCopied),
+                    )
+                }
+            }
             if (executing) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

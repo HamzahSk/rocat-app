@@ -1,5 +1,6 @@
 package app.rocat.media
 
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import app.rocat.core.common.network.NetworkHelper
 import app.rocat.storage.StorageManager
@@ -18,7 +19,12 @@ import java.util.Locale
  * requests carry the browser-grade user-agent, the custom DoH DNS, the stealth headers
  * and the shared cookie jar — meaning authenticated media (e.g. scraped video behind a
  * login) downloads correctly.
- */class MediaDownloader(
+ *
+ * Tahap 31: the whole pipeline is hardened so a network or storage failure never crashes
+ * the UI — every step logs its real cause (via [Log]) and the caller turns a null result
+ * into a friendly Toast.
+ */
+class MediaDownloader(
     private val networkHelper: NetworkHelper,
     private val storageManager: StorageManager,
 ) {
@@ -40,14 +46,25 @@ import java.util.Locale
         headers: Map<String, String> = emptyMap(),
         onProgress: (Float) -> Unit = {},
     ): String? = withContext(Dispatchers.IO) {
-        if (folder == null) return@withContext null
-        val bytes = fetchBytes(url, headers, onProgress) ?: return@withContext null
-        storageManager.saveFileToScrapeFolder(
-            folder = folder,
-            fileName = fileName,
-            mimeType = mimeType,
-            content = bytes,
-        )?.toString()
+        if (folder == null) {
+            Log.w(TAG, "download aborted: scrape folder is not configured")
+            return@withContext null
+        }
+        val bytes = fetchBytes(url, headers, onProgress)
+        if (bytes == null) {
+            Log.w(TAG, "download aborted: could not fetch bytes for $url")
+            return@withContext null
+        }
+        runCatching {
+            storageManager.saveFileToScrapeFolder(
+                folder = folder,
+                fileName = fileName,
+                mimeType = mimeType,
+                content = bytes,
+            )
+        }.onFailure { error ->
+            Log.e(TAG, "save to scrape folder failed for $fileName", error)
+        }.getOrNull()?.toString()
     }
 
     /**
@@ -66,28 +83,48 @@ import java.util.Locale
     }
 
     /** Streams the whole body of [url] into memory, reporting download progress. */
-    private fun fetchBytes(url: String, headers: Map<String, String>, onProgress: (Float) -> Unit): ByteArray? = runCatching {
-        val request = Request.Builder().url(url).apply {
-            headers.forEach { (name, value) -> addHeader(name, value) }
-        }.build()
-        networkHelper.client().newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@runCatching null
-            val body = response.body ?: return@runCatching null
-            val total = body.contentLength().coerceAtLeast(0L)
-            val buffer = ByteArrayOutputStream()
-            val sink = body.byteStream()
-            val chunk = ByteArray(DEFAULT_CHUNK_SIZE)
-            var received = 0L
-            while (true) {
-                val read = sink.read(chunk)
-                if (read < 0) break
-                buffer.write(chunk, 0, read)
-                received += read
-                if (total > 0) onProgress(received.toFloat() / total.toFloat())
-            }
-            buffer.toByteArray()
+    private fun fetchBytes(
+        url: String,
+        headers: Map<String, String>,
+        onProgress: (Float) -> Unit,
+    ): ByteArray? {
+        val request = try {
+            Request.Builder().url(url).apply {
+                headers.forEach { (name, value) -> addHeader(name, value) }
+            }.build()
+        } catch (e: Throwable) {
+            Log.e(TAG, "invalid download URL: $url", e)
+            return null
         }
-    }.getOrNull()
+        return try {
+            networkHelper.client().newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "HTTP ${response.code} downloading $url")
+                    return null
+                }
+                val body = response.body ?: run {
+                    Log.w(TAG, "empty body downloading $url")
+                    return null
+                }
+                val total = body.contentLength().coerceAtLeast(0L)
+                val buffer = ByteArrayOutputStream()
+                val sink = body.byteStream()
+                val chunk = ByteArray(DEFAULT_CHUNK_SIZE)
+                var received = 0L
+                while (true) {
+                    val read = sink.read(chunk)
+                    if (read < 0) break
+                    buffer.write(chunk, 0, read)
+                    received += read
+                    if (total > 0) onProgress(received.toFloat() / total.toFloat())
+                }
+                buffer.toByteArray()
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "download failed: $url", e)
+            null
+        }
+    }
 
     /**
      * Best-effort file name for [url]: last non-empty path segment, with a MIME-based
@@ -123,5 +160,6 @@ import java.util.Locale
 
     companion object {
         private const val DEFAULT_CHUNK_SIZE = 8 * 1024
+        private const val TAG = "MediaDownloader"
     }
 }

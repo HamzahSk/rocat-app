@@ -57,6 +57,12 @@ class ScriptCanvasViewModel(
         val loaded: Boolean = false,
         val executing: Boolean = false,
         val output: String = "",
+        /**
+         * The `functionName` of the button currently running a script invocation (Tahap
+         * 31). Bound uniquely to the pressed button so only it shows the loading state;
+         * every other button stays idle instead of inheriting a global "busy" flag.
+         */
+        val activeButton: String? = null,
     )
 
     /** The ordered, script-driven list of components rendered by the canvas. */
@@ -257,14 +263,19 @@ class ScriptCanvasViewModel(
     /**
      * Pressing a `RoCatUI.Button`: gathers every non-blank input into a `Map<id, value>`
      * and invokes the named JS function with that object as a single argument.
+     *
+     * Tahap 31: a second tap while one invocation is still running is ignored (guarded
+     * below), and the loading state is bound to this [functionName] so the sibling
+     * buttons do not animate.
      */
     fun onScriptButton(functionName: String) {
+        if (state.value.executing) return
         val script = state.value.script ?: return
         val inputs = uiComponents
             .filterIsInstance<ScriptUIComponent.Input>()
             .filter { it.value.isNotBlank() }
             .associate { it.id to it.value.trim() }
-        execute(script, functionName, inputs = inputs, args = emptyList())
+        execute(script, functionName, inputs = inputs, args = emptyList(), activeButtonName = functionName)
     }
 
     /**
@@ -286,10 +297,11 @@ class ScriptCanvasViewModel(
         functionName: String,
         inputs: Map<String, String>,
         args: List<String>,
+        activeButtonName: String? = null,
     ) {
         // Ensure the per-script scrape folder exists before the scrape writes anything.
         scrapeFolder()
-        mutableState.update { it.copy(executing = true, output = "") }
+        mutableState.update { it.copy(executing = true, output = "", activeButton = activeButtonName) }
         viewModelScope.launch {
             val result = try {
                 if (args.isNotEmpty()) {
@@ -307,7 +319,7 @@ class ScriptCanvasViewModel(
                 is ScriptResult.Success -> normalizeOutput(result.value)
                 is ScriptResult.Failure -> "Error: ${result.error}"
             }
-            mutableState.update { it.copy(executing = false, output = message) }
+            mutableState.update { it.copy(executing = false, output = message, activeButton = null) }
         }
     }
 

@@ -1,6 +1,7 @@
 package app.rocat.ui.components
 
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import app.rocat.core.common.injekt.Injekt
 import app.rocat.media.MediaDownloader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -61,8 +63,16 @@ class MediaDownloaderState(
         val downloader = Injekt.get<MediaDownloader>()
         scope.launch {
             status = DownloadStatus.Downloading(0f)
-            val uri = downloader.download(url, folder, fileName, mimeType, headers) { progress ->
-                status = DownloadStatus.Downloading(progress)
+            val uri = try {
+                downloader.download(url, folder, fileName, mimeType, headers) { progress ->
+                    status = DownloadStatus.Downloading(progress)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Tahap 31 anti-crash: a failing download must never take the app down.
+                Log.e(TAG, "download crashed for $url", e)
+                null
             }
             status = if (uri != null) DownloadStatus.Done else DownloadStatus.Failed
             Toast.makeText(
@@ -71,6 +81,10 @@ class MediaDownloaderState(
                 Toast.LENGTH_SHORT,
             ).show()
         }
+    }
+
+    private companion object {
+        const val TAG = "MediaDownloaderState"
     }
 }
 

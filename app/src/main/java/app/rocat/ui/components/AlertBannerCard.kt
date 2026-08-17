@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import app.rocat.i18n.StringKey
+import app.rocat.i18n.stringResource
 
 /** Alert severity for [AlertBannerCard]; drives the icon + container colors. */
 enum class AlertType(val key: String, val icon: ImageVector) {
@@ -83,6 +85,13 @@ fun AlertBannerCard(
                 color = contentColor,
                 modifier = Modifier.weight(1f),
             )
+            if (message.isNotBlank()) {
+                CopyIconButton(
+                    text = message,
+                    label = stringResource(StringKey.copyText),
+                    message = stringResource(StringKey.textCopied),
+                )
+            }
         }
     }
 }

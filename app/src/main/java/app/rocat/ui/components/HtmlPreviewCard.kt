@@ -9,7 +9,9 @@ import android.text.Spanned
 import android.text.style.StyleSpan
 import android.text.style.UnderlineSpan
 import android.text.style.URLSpan
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -33,6 +36,8 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import app.rocat.i18n.StringKey
+import app.rocat.i18n.stringResource
 
 /**
  * Script-driven rich-text HTML preview card (Tahap 22.2). Converts the HTML with
@@ -65,27 +70,50 @@ fun HtmlPreviewCard(
     val annotated = remember(spanned, linkStyle, linkInteraction) {
         spannedToAnnotated(spanned, linkStyle, linkInteraction)
     }
+    val plainText = remember(spanned) { spanned.toString() }
 
     ScriptCanvasCard(modifier = modifier) {
         Column(modifier = Modifier.fillMaxWidth()) {
             if (title.isNotBlank()) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp),
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (plainText.isNotBlank()) {
+                        CopyIconButton(
+                            text = plainText,
+                            label = stringResource(StringKey.copyText),
+                            message = stringResource(StringKey.textCopied),
+                        )
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
             }
-            Text(
-                text = annotated,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 320.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(12.dp),
-            )
+            Box {
+                Text(
+                    text = annotated,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp),
+                )
+                if (title.isBlank() && plainText.isNotBlank()) {
+                    CopyIconButton(
+                        text = plainText,
+                        label = stringResource(StringKey.copyText),
+                        message = stringResource(StringKey.textCopied),
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    )
+                }
+            }
         }
     }
 }

@@ -31,6 +31,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
+import app.rocat.i18n.StringKey
+import app.rocat.i18n.stringResource
 
 /**
  * Script-driven video preview card (Tahap 18.2). Shows a 16:9 placeholder with the
@@ -72,14 +74,24 @@ fun VideoPreviewCard(
 
             if (title.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    CopyIconButton(
+                        text = url,
+                        label = stringResource(StringKey.copyUrl),
+                        message = stringResource(StringKey.urlCopied),
+                    )
+                }
             }
 
             Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {

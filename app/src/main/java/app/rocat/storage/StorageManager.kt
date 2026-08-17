@@ -3,6 +3,7 @@ package app.rocat.storage
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import app.rocat.settings.SettingsRepository
 import coil3.SingletonImageLoader
@@ -134,6 +135,10 @@ class StorageManager(
      * [DocumentFile.createFile] and streams the bytes through
      * `contentResolver.openOutputStream` so the file genuinely lands on device storage.
      *
+     * Tahap 31 hardening: if [fileName] carries no extension a MIME-based one is appended
+     * (so query-string scraped URLs still produce browsable files), the SAF write is fully
+     * guarded, and every failure path is logged with its real cause.
+     *
      * @return the content [Uri] of the written file, or null when storage is not
      *   configured / the write failed.
      */
@@ -143,14 +148,43 @@ class StorageManager(
         mimeType: String,
         content: ByteArray,
     ): Uri? = withContext(Dispatchers.IO) {
-        if (folder == null) return@withContext null
-        val safeName = sanitizeFileName(fileName).takeIf { it.isNotBlank() } ?: return@withContext null
-        val target = folder.findFile(safeName) ?: folder.createFile(mimeType, safeName) ?: return@withContext null
-        runCatching {
-            openOutputStream(target.uri)?.use { out -> out.write(content) }
-                ?: return@withContext null
+        if (folder == null) {
+            Log.w(TAG, "saveFileToScrapeFolder: folder is null (storage not configured)")
+            return@withContext null
+        }
+        if (content.isEmpty()) {
+            Log.w(TAG, "saveFileToScrapeFolder: refusing to write empty content for $fileName")
+            return@withContext null
+        }
+        var safeName = sanitizeFileName(fileName)
+        if (safeName.isBlank()) {
+            Log.w(TAG, "saveFileToScrapeFolder: file name sanitized to blank")
+            return@withContext null
+        }
+        // Append a MIME-based extension when the caller's name lacks one (Tahap 31).
+        if (safeName.substringAfterLast('.', "").isBlank()) {
+            safeName += extensionForMime(mimeType)
+        }
+        val target = folder.findFile(safeName) ?: folder.createFile(mimeType, safeName)
+        if (target == null) {
+            Log.e(TAG, "saveFileToScrapeFolder: createFile('$mimeType', '$safeName') returned null")
+            return@withContext null
+        }
+        try {
+            val stream = openOutputStream(target.uri)
+            if (stream == null) {
+                Log.e(TAG, "saveFileToScrapeFolder: openOutputStream returned null for ${target.uri}")
+                return@withContext null
+            }
+            stream.use { out ->
+                out.write(content)
+                out.flush()
+            }
             target.uri
-        }.getOrNull()
+        } catch (e: Throwable) {
+            Log.e(TAG, "saveFileToScrapeFolder: write failed for '$safeName' -> ${target.uri}", e)
+            null
+        }
     }
 
     /** Convenience overload writing a UTF-8 [String] as plain text. */
@@ -177,6 +211,26 @@ class StorageManager(
     private fun sanitizeFileName(name: String): String =
         name.trim().replace(Regex("[/\\\\:*?\"<>|]"), "_").take(120)
 
+    /** Maps a MIME type to a typical extension used when a file name has none (Tahap 31). */
+    private fun extensionForMime(mimeType: String): String = when (mimeType.lowercase()) {
+        "image/jpeg", "image/jpg" -> ".jpg"
+        "image/png" -> ".png"
+        "image/webp" -> ".webp"
+        "image/gif" -> ".gif"
+        "video/mp4", "video/mp4v-es" -> ".mp4"
+        "video/webm" -> ".webm"
+        "video/quicktime" -> ".mov"
+        "audio/mpeg" -> ".mp3"
+        "audio/wav" -> ".wav"
+        "audio/ogg" -> ".ogg"
+        "audio/mp4" -> ".m4a"
+        "application/x-mpegurl", "application/vnd.apple.mpegurl" -> ".m3u8"
+        "application/json" -> ".json"
+        "text/plain" -> ".txt"
+        "application/javascript" -> ".js"
+        else -> ".bin"
+    }
+
     /**
      * Empties the Coil image cache (memory + disk) and every file under `context.cacheDir`.
      * Runs on a background dispatcher because disk eviction can take a moment.
@@ -194,5 +248,7 @@ class StorageManager(
 
         /** Top-level folder holding every imported script's physical `.js` file. */
         const val SCRIPTS_DIR = "Scripts"
+
+        private const val TAG = "StorageManager"
     }
 }

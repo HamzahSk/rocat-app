@@ -78,6 +78,13 @@ enum class StringKey(val key: String) {
     pause("pause"),
     downloadAudio("download_audio"),
     audioSaved("audio_saved"),
+    // Tahap 31: generic copy actions on template cards
+    copy("copy"),
+    copied("copied"),
+    copyText("copy_text"),
+    textCopied("text_copied"),
+    copyUrl("copy_url"),
+    urlCopied("url_copied"),
 
     // Browser screen
     addressBar("address_bar"),
