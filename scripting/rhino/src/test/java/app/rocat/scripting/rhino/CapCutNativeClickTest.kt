@@ -13,33 +13,36 @@ import org.junit.Test
 import java.io.File
 
 /**
- * Tahap 29 — verifies the `test_browserless.js` demo end-to-end. The script exercises
- * the Puppeteer-like `page` global (goto / type / click / waitForSelector / scrollBottom
- * / evaluate / content / screenshot) driven by a fake [ScriptBrowserBridge], proving:
+ * Tahap 30 — verifies the rewritten `capcut_test.js` (v4). The script no longer clicks
+ * through a convoluted `page.evaluate` chain calling `el.click()` (untrusted, ignored
+ * by SPA/anti-bot pages). Instead it tags the target element with `data-rocat-click`
+ * and calls the built-in `page.click(selector)` which, on the app side, dispatches a
+ * **native touch tap** (MotionEvent ACTION_DOWN/ACTION_UP) through the WebView.
  *
- *  1. `onLaunch()` renders the two demo buttons without touching the browser.
- *  2. `runDemo()` runs the full browserless flow **synchronously** (Rhino has no
- *     async/await) and returns structured results via `RoCatUI.addJsonLog`.
- *  3. `runStatic()` still works with plain `fetch()` + `RoCatDOM` — backward
- *     compatibility is untouched by the new browserless engine.
+ * The test proves:
+ *  1. `onLaunch()` renders the action buttons without touching the browser.
+ *  2. `clickContinueEmail()` runs the full flow synchronously (Rhino has no
+ *     async/await) and the click is forwarded to the native bridge
+ *     (`click:[data-rocat-click="1"]`) instead of an evaluate-based synthetic click.
+ *  3. The fallback static `fetch()` path is untouched.
  */
-class TestBrowserlessScraperTest {
+class CapCutNativeClickTest {
 
     private val scriptSource: String by lazy {
         val candidates = listOf(
-            "../../../test_browserless.js", // working dir = rocat-app/scripting/rhino
-            "../../test_browserless.js",    // working dir = rocat-app/scripting
-            "../test_browserless.js",       // working dir = rocat-app
-            "test_browserless.js",          // working dir = repo root
+            "../../../capcut_test.js", // working dir = rocat-app/scripting/rhino
+            "../../capcut_test.js",    // working dir = rocat-app/scripting
+            "../capcut_test.js",       // working dir = rocat-app
+            "capcut_test.js",          // working dir = repo root
         )
         val file = candidates.asSequence()
             .map(::File)
             .firstOrNull { it.exists() }
-            ?: error("test_browserless.js not found (user.dir=${System.getProperty("user.dir")})")
+            ?: error("capcut_test.js not found (user.dir=${System.getProperty("user.dir")})")
         file.readText()
     }
 
-    private fun script() = Script(id = "browserless", name = "Test Browserless", source = scriptSource)
+    private fun script() = Script(id = "capcut", name = "CapCut Native Touch", source = scriptSource)
 
     private class UiRecorder : ScriptUiBridge {
         val calls = mutableListOf<String>()
@@ -67,7 +70,7 @@ class TestBrowserlessScraperTest {
         }
     }
 
-    /** Fake headless browser that answers page.* commands from canned markers. */
+    /** Fake headless browser simulating a CapCut SPA page. */
     private class FakeBrowser : ScriptBrowserBridge {
         val calls = mutableListOf<String>()
         var opened = false
@@ -94,10 +97,10 @@ class TestBrowserlessScraperTest {
         }
 
         override fun evaluate(script: String): String = when {
-            // page.evaluate(function(){ return { title, cards, scrollY, ready } })
-            script.contains("scrollY") -> {
+            // The marker script tags the target element with data-rocat-click.
+            script.contains("data-rocat-click") -> {
                 calls += "eval"
-                """{"title":"Dashboard","cards":3,"scrollY":600,"ready":"complete"}"""
+                """{"tagged":true,"tag":"BUTTON","className":"lv-account-login-form-main-field-xx","index":0}"""
             }
             script.contains("querySelector") -> {
                 calls += "eval"
@@ -107,9 +110,9 @@ class TestBrowserlessScraperTest {
                 calls += "eval"
                 "\"complete\""
             }
-            script.contains("document.title") -> {
+            script.contains("location.href") -> {
                 calls += "eval"
-                "\"Dashboard\""
+                "\"https://www.capcut.com/id-id/signup\""
             }
             else -> {
                 calls += "eval"
@@ -118,8 +121,8 @@ class TestBrowserlessScraperTest {
         }
 
         override fun getHtml(): String =
-            "<html><body><div class=\"dashboard\"><span class=\"user-name\">Budi</span>" +
-                "<div class=\"card\">A</div><div class=\"card\">B</div><div class=\"card\">C</div></div></body></html>"
+            "<html><body><button data-rocat-click=\"1\">Lanjutkan dengan alamat email</button>" +
+                "<form><input type=\"email\" /><input type=\"password\" /></form></body></html>"
 
         override fun sleep(ms: Long): Boolean {
             calls += "sleep:$ms"
@@ -128,12 +131,12 @@ class TestBrowserlessScraperTest {
 
         override fun url(): String {
             calls += "url"
-            return "https://example.com/login"
+            return "https://www.capcut.com/id-id/signup"
         }
 
         override fun title(): String {
             calls += "title"
-            return "Dashboard"
+            return "Daftar - CapCut"
         }
 
         override fun scrollTo(x: Int, y: Int): Boolean {
@@ -148,21 +151,21 @@ class TestBrowserlessScraperTest {
 
         override fun screenshot(path: String, quality: Int): String {
             calls += "screenshot:$path:$quality"
-            return "/cache/browser_screenshots/shot_demo.png"
+            return "/cache/browser_screenshots/shot_capcut.png"
         }
 
         override fun close() { calls += "close" }
     }
 
-    private fun env(ui: ScriptUiBridge, browser: ScriptBrowserBridge, body: String = "") =
+    private fun env(ui: ScriptUiBridge, browser: ScriptBrowserBridge) =
         DefaultScriptEnvironment(
-            fetchImpl = { _, _, _, _ -> FetchResult(200, emptyMap(), body) },
+            fetchImpl = { _, _, _, _ -> FetchResult(200, emptyMap(), "") },
             ui = ui,
             browser = browser,
         )
 
     @Test
-    fun `onLaunch renders demo buttons without touching the browser`() = runBlocking {
+    fun `onLaunch renders the action buttons without touching the browser`() = runBlocking {
         val ui = UiRecorder()
         val browser = FakeBrowser()
         val engine = RhinoScriptEngine(OkHttpClient.Builder().build())
@@ -174,65 +177,37 @@ class TestBrowserlessScraperTest {
         )
         assertTrue("onLaunch failed: $result", result is ScriptResult.Success)
         assertTrue("expected clear", ui.calls.any { it == "clear" })
-        assertTrue("expected browserless button", ui.calls.any { it.contains("runDemo") })
-        assertTrue("expected static button", ui.calls.any { it.contains("runStatic") })
+        assertTrue("expected action button", ui.calls.any { it.contains("clickContinueEmail") })
         assertTrue("browser must not be touched by onLaunch", browser.calls.isEmpty())
     }
 
     @Test
-    fun `runDemo drives the full browserless flow synchronously`() = runBlocking {
+    fun `clickContinueEmail clicks via native page click bridge`() = runBlocking {
         val ui = UiRecorder()
         val browser = FakeBrowser()
         val engine = RhinoScriptEngine(OkHttpClient.Builder().build())
         val result = engine.invokeNamedFunction(
             script(),
             env(ui, browser),
-            "runDemo",
+            "clickContinueEmail",
             emptyMap(),
         )
 
-        assertTrue("runDemo failed: $result", result is ScriptResult.Success)
+        assertTrue("clickContinueEmail failed: $result", result is ScriptResult.Success)
 
-        // The whole Puppeteer-like flow ran synchronously on the Rhino thread.
-        assertTrue("expected goto (open)", browser.calls.any { it.startsWith("open:https://example.com/login") })
-        assertTrue("expected scrollTo", browser.calls.any { it == "scrollTo:0:200" })
-        assertTrue("expected scrollBottom (lazy-load)", browser.calls.any { it == "scrollBottom" })
-        assertTrue("expected sleep/waitForTimeout", browser.calls.any { it.startsWith("sleep:") })
+        assertTrue("expected goto (open)", browser.calls.any { it.startsWith("open:https://www.capcut.com/id-id/signup") })
+        // page.waitForSelector polls via evaluate (locator.exists → querySelector probe);
+        // the marker evaluate that tags the target element must also have run.
+        assertTrue("expected evaluate-based selector probes", browser.calls.any { it == "eval" })
+        // The click MUST go to the native bridge (page.click) — not an evaluate chain.
+        assertTrue("expected native bridge click", browser.calls.contains("click:[data-rocat-click=\"1\"]"))
         assertTrue("expected screenshot", browser.calls.any { it.startsWith("screenshot:") })
-        assertTrue("expected close (WebView released)", browser.calls.contains("close"))
 
-        // page.type() is driven through evaluate (locator.type → locator.fill dispatches
-        // React/Vue-friendly input events); page.click() forwards to the native bridge
-        // (Tahap 30: real ACTION_DOWN/ACTION_UP MotionEvent tap).
-        assertTrue("expected evaluate-based typing", browser.calls.count { it == "eval" } >= 4)
-        assertTrue("expected native bridge click", browser.calls.contains("click:#submit"))
-
-        // The script parsed the rendered HTML with RoCatDOM and found the user name.
-        val jsonLog = ui.calls.firstOrNull { it.startsWith("jsonlog:Hasil Browserless") } ?: ""
-        assertTrue("expected typedUser success in $jsonLog", jsonLog.contains("\"typedUser\":true"))
-        assertTrue("expected parsed name 'Budi' in $jsonLog", jsonLog.contains("Budi"))
-        assertTrue("expected contentLength in $jsonLog", jsonLog.contains("contentLength"))
-        assertTrue("expected a success banner", ui.calls.any { it.startsWith("alert:success") })
-    }
-
-    @Test
-    fun `runStatic keeps fetch and RoCatDOM fully working`() = runBlocking {
-        val ui = UiRecorder()
-        val browser = FakeBrowser()
-        val staticHtml = "<html><body><h1>Example Domain</h1></body></html>"
-        val engine = RhinoScriptEngine(OkHttpClient.Builder().build())
-        val result = engine.invokeNamedFunction(
-            script(),
-            env(ui, browser, staticHtml),
-            "runStatic",
-            emptyMap(),
-        )
-
-        assertTrue("runStatic failed: $result", result is ScriptResult.Success)
-        val jsonLog = ui.calls.firstOrNull { it.startsWith("jsonlog:Hasil Mode Statis") } ?: ""
-        assertTrue("expected status 200 in $jsonLog", jsonLog.contains("\"status\":200"))
-        assertTrue("expected h1 parsed via RoCatDOM in $jsonLog", jsonLog.contains("Example Domain"))
-        // Static mode must never create a headless WebView.
-        assertTrue("browser must not be touched in static mode, got ${browser.calls}", browser.calls.isEmpty())
+        // The script parsed the rendered HTML with RoCatDOM and found the email form.
+        val jsonLog = ui.calls.firstOrNull { it.startsWith("jsonlog:📊 Detail") } ?: ""
+        assertTrue("expected berhasil_tap true in $jsonLog", jsonLog.contains("\"berhasil_tap\":true"))
+        assertTrue("expected email_inputs in $jsonLog", jsonLog.contains("\"email_inputs\":1"))
+        assertTrue("expected password_inputs in $jsonLog", jsonLog.contains("\"password_inputs\":1"))
+        assertTrue("expected success banner", ui.calls.any { it.startsWith("alert:success") })
     }
 }

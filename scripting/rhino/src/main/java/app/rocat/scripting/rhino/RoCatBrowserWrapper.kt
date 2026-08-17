@@ -91,6 +91,14 @@ var RoCatBrowser = (function () {
 
     Locator.prototype.click = function () {
         var self = this;
+        // Tahap 30: prefer the native touch bridge (RoCatPage.click dispatches a real
+        // ACTION_DOWN/ACTION_UP MotionEvent pair on the WebView). Untrusted synthetic
+        // events from el.click()/dispatchEvent are ignored by SPA & anti-bot pages.
+        if (hasPage() && RoCatPage.click) {
+            var ok = RoCatPage.click(this.selector);
+            if (ok === true) return { success: true };
+            return { success: false, error: "Element not found or click failed: " + this.selector };
+        }
         return asResult(evaluateInPage(function (sel) {
             var el = document.querySelector(sel);
             if (!el) return { success: false, error: "Element not found: " + sel };

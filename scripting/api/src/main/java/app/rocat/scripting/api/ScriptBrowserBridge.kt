@@ -42,8 +42,11 @@ interface ScriptBrowserBridge {
     fun type(selector: String, text: String): Boolean
 
     /**
-     * Dispatches a real pointer/mouse `click` sequence on the first element matching
-     * [selector] (falls back to `element.click()`).
+     * Clicks the first element matching [selector]. The app-side implementation
+     * (Tahap 30) first tries a **native touch tap** (a real `ACTION_DOWN`/`ACTION_UP`
+     * `MotionEvent` pair at the element's on-screen center) so SPA / anti-bot pages
+     * see trusted events instead of the synthetic (untrusted) ones a JS `el.click()`
+     * produces; a JS pointer/mouse sequence remains the fallback.
      *
      * @return `true` when the element existed and was clicked.
      */

@@ -7,6 +7,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -104,8 +107,163 @@ class HeadlessWebViewManager(private val appContext: Context) {
         return evaluateJs(js, DEFAULT_EVAL_TIMEOUT_MS) == "true"
     }
 
-    /** Dispatches a real pointer/mouse click sequence on [selector]. */
+    /**
+     * Clicks [selector] with a **native touch sequence** (Tahap 30).
+     *
+     * A plain JS `element.click()` / `dispatchEvent` produces *untrusted* DOM events
+     * (`isTrusted === false`) that modern SPA frameworks (React/Vue) and anti-bot
+     * gateways (CapCut signup, hCaptcha, Cloudflare Turnstile, ...) routinely ignore,
+     * so the page never reacts. To be treated as a genuine screen interaction the click
+     * is dispatched as a real [MotionEvent] pair (`ACTION_DOWN` → `ACTION_UP`) at the
+     * element's on-screen center through `WebView.dispatchTouchEvent`, which makes the
+     * page observe trusted `touchstart/touchend → pointerdown/pointerup →
+     * mousedown/mouseup → click` events exactly like a human tap.
+     *
+     * The WebView is first laid out to the default viewport (same as [screenshot]) so
+     * the element's `getBoundingClientRect` coordinates map onto a real coordinate
+     * space, and the element is scrolled into view when it sits outside the viewport.
+     * When the element cannot be located (or the native dispatch is rejected) the
+     * previous JS event-sequence fallback is used, so the method never crashes and
+     * never reports a false negative.
+     */
     fun click(selector: String): Boolean {
+        val wv = webView ?: ensureWebView() ?: return false
+        measureIfNeeded(wv)
+        val bounds = elementBounds(wv, selector)
+        if (bounds != null) {
+            val cx = (bounds[0] + bounds[2] / 2f).toInt()
+            val cy = (bounds[1] + bounds[3] / 2f).toInt()
+            if (dispatchNativeTap(wv, cx, cy)) return true
+        }
+        return clickViaJs(selector)
+    }
+
+    /**
+     * Ensures the (never-attached) WebView has a real width/height so element
+     * coordinates and touch dispatch work in a genuine coordinate space. Uses the
+     * same default viewport as [screenshot]; no-op once the view is laid out.
+     */
+    private fun measureIfNeeded(wv: WebView) {
+        if (wv.width > 0 && wv.height > 0) return
+        val latch = CountDownLatch(1)
+        onMain {
+            try {
+                wv.measure(
+                    View.MeasureSpec.makeMeasureSpec(DEFAULT_VIEWPORT_WIDTH, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(DEFAULT_VIEWPORT_HEIGHT, View.MeasureSpec.EXACTLY),
+                )
+                wv.layout(0, 0, wv.measuredWidth, wv.measuredHeight)
+            } catch (_: Throwable) {
+                // Layout is best-effort; touch fallback still applies below.
+            }
+            latch.countDown()
+        }
+        try {
+            latch.await(1, TimeUnit.SECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    /**
+     * Returns the live bounding box of [selector] as `[left, top, width, height]`,
+     * after scrolling the element into the viewport center. `null` when the element
+     * does not exist or has no renderable size (hidden, `display:none`, detached).
+     */
+    private fun elementBounds(wv: WebView, selector: String): FloatArray? {
+        val js = """
+            (function() {
+                var el = document.querySelector(${jsQuote(selector)});
+                if (!el) return null;
+                try { el.scrollIntoView({ block: 'center', inline: 'center' }); }
+                catch (e) { try { el.scrollIntoView(); } catch (e2) {} }
+                var r = el.getBoundingClientRect();
+                if (!r || r.width <= 0 || r.height <= 0) return null;
+                return [r.left, r.top, r.width, r.height];
+            })()
+        """.trimIndent()
+        val raw = evaluateJs(js, DEFAULT_EVAL_TIMEOUT_MS) ?: return null
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || trimmed == "null" || trimmed == "undefined") return null
+        return try {
+            val arr = JSONArray(trimmed)
+            floatArrayOf(
+                arr.getDouble(0).toFloat(),
+                arr.getDouble(1).toFloat(),
+                arr.getDouble(2).toFloat(),
+                arr.getDouble(3).toFloat(),
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Dispatches a trusted screen tap at `(x, y)` through the Android input pipeline:
+     * `ACTION_DOWN` → short gap → `ACTION_UP`, each as a touchscreen-sourced
+     * [MotionEvent]. This is what makes the page see `isTrusted: true` events instead
+     * of the synthetic (untrusted) DOM events a JS `el.click()` produces.
+     */
+    private fun dispatchNativeTap(wv: WebView, x: Int, y: Int): Boolean {
+        val downTime = SystemClock.uptimeMillis()
+
+        val downLatch = CountDownLatch(1)
+        val downRef = AtomicReference(false)
+        onMain {
+            try {
+                val down = MotionEvent.obtain(
+                    downTime, downTime, MotionEvent.ACTION_DOWN, x.toFloat(), y.toFloat(), 0,
+                ).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+                val handled = wv.dispatchTouchEvent(down)
+                down.recycle()
+                downRef.set(handled)
+            } catch (_: Throwable) {
+                downRef.set(false)
+            } finally {
+                downLatch.countDown()
+            }
+        }
+        if (!awaitLatch(downLatch)) return false
+
+        // A realistic tap has a few ms between finger-down and finger-up; this also
+        // lets the page start its press/ripple handling before the release arrives.
+        try {
+            Thread.sleep(TAP_GAP_MS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return false
+        }
+
+        val upLatch = CountDownLatch(1)
+        val upRef = AtomicReference(false)
+        onMain {
+            try {
+                val up = MotionEvent.obtain(
+                    downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x.toFloat(), y.toFloat(), 0,
+                ).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+                val handled = wv.dispatchTouchEvent(up)
+                up.recycle()
+                upRef.set(handled)
+            } catch (_: Throwable) {
+                upRef.set(false)
+            } finally {
+                upLatch.countDown()
+            }
+        }
+        if (!awaitLatch(upLatch)) return downRef.get()
+        return downRef.get() || upRef.get()
+    }
+
+    /** Blocks the calling (script) thread on [latch] until it opens or the timeout hits. */
+    private fun awaitLatch(latch: CountDownLatch): Boolean = try {
+        latch.await(DEFAULT_EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+    } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+        false
+    }
+
+    /** Fallback: the classic synthetic pointer/mouse click sequence, straight to JS. */
+    private fun clickViaJs(selector: String): Boolean {
         val js = """
             (function() {
                 var el = document.querySelector(${jsQuote(selector)});
@@ -414,6 +572,7 @@ class HeadlessWebViewManager(private val appContext: Context) {
         const val SCREENSHOT_DIR = "browser_screenshots"
         const val DEFAULT_VIEWPORT_WIDTH = 1366
         const val DEFAULT_VIEWPORT_HEIGHT = 768
+        const val TAP_GAP_MS = 60L
     }
 }
 

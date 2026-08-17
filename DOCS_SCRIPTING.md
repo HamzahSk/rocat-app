@@ -31,7 +31,8 @@ Global yang tersedia di setiap skrip:
 - `RoCatPage` — bridge *headless WebView* tingkat rendah (Tahap 23; hanya aktif bila
   mesin browser tersedia — lihat **Bab 7**).
 - `RoCatBrowser` / `page` — API *browserless* ala Puppeteer/Playwright (Tahap 25/29;
-  `page` = facade global praktis yang mengendalikan satu tab WebView tersembunyi).
+  `page` = facade global praktis yang mengendalikan satu tab WebView tersembunyi;
+  Tahap 30: `page.click` memakai **tap native** MotionEvent, bukan JS `el.click()`).
 - `JSON`, `Math`, `String`, `encodeURIComponent`, dll. — standar JS.
 
 ---
@@ -772,11 +773,12 @@ function parseCards(html) {
 
 ## 7. Browserless / Headless WebView API
 
-> **Tahap 29.** Banyak situs modern adalah SPA atau dilindungi anti-bot yang DOM-nya
+> **Tahap 29 / 30.** Banyak situs modern adalah SPA atau dilindungi anti-bot yang DOM-nya
 > baru ter-render oleh JavaScript — `fetch()` statis + `RoCatDOM` (Jsoup) tidak cukup.
 > Bab ini memperkenalkan API *browserless* yang mengendalikan sebuah **WebView
 > headless** (tersembunyi, tidak tampil di layar) milik aplikasi, dengan antarmuka yang
-> meniru **Puppeteer/Playwright**.
+> meniru **Puppeteer/Playwright**. Tahap 30 menambahkan klik **native touch**
+> (MotionEvent) agar klik diterima situs SPA/anti-bot (lihat §7.2a).
 
 ### 7.1 Kapan Memakainya (Dual-Mode)
 
@@ -807,6 +809,32 @@ function parseCards(html) {
 - WebView hanya berjalan di *main thread* Android → seluruh komunikasi antar-thread
   di-marshal lewat `Handler` + `CountDownLatch` di `HeadlessWebViewManager`.
 
+### 7.2a Klik Native Touch (Tahap 30) — Kenapa JS `el.click()` Gagal
+
+Situs SPA modern (React/Vue) dan situs ber-**anti-bot** (CapCut, hCaptcha, Cloudflare)
+mengabaikan klik sintetis dari JavaScript. Penyebabnya:
+
+- `el.click()` / `dispatchEvent(...)` menghasilkan event **untrusted**
+  (`event.isTrusted === false`). Banyak framework & detektor bot memeriksa `isTrusted`
+  dan menolak event yang tidak berasal dari input nyata.
+- React/Vue memakai *event delegation* di akar dokumen (root listener) — event yang
+  tidak *trusted* atau tidak lengkap (tanpa `pointerdown`/`mousedown` berpasangan)
+  sering di-drop sebelum mencapai handler tombol.
+
+Solusinya, `page.click(selector)` di `HeadlessWebViewManager` sekarang melakukan
+**tap native**:
+
+1. WebView di-*layout* ke viewport default (sama seperti screenshot).
+2. Elemen dicari via `getBoundingClientRect` dan digulir ke tengah viewport.
+3. Pasangan `MotionEvent` **`ACTION_DOWN` → `ACTION_UP`** dikirim lewat
+   `WebView.dispatchTouchEvent` di koordinat pusat elemen (sumber `TOUCHSCREEN`).
+4. Halaman melihat rangkaian event *trusted* yang sah: `touchstart/touchend →
+   pointerdown/pointerup → mousedown/mouseup → click`.
+
+Bila elemen tidak ditemukan atau tap ditolak, fallback JS (urutan
+`pointer/mouse/click`) tetap dipakai sehingga metode tidak pernah gagal diam-diam.
+`page.locator(selector).click()` juga memakai jalur native yang sama.
+
 ### 7.3 Objek Global `page`
 
 Objek **`page`** adalah facade global yang mengendalikan satu tab WebView tersembunyi.
@@ -820,7 +848,7 @@ host menyediakan mesin browser (di Canvas selalu tersedia); skrip polos melihat
 | `page.goto(url, options?)` | Memuat `url` dan menunggu halaman selesai dimuat (Puppeteer-like). |
 | `page.waitForSelector(selector, timeout?)` | Menunggu elemen DOM dirender. `timeout` default 30 s. |
 | `page.waitForTimeout(ms)` | Jeda skrip `ms` milidetik (seperti `sleep`). |
-| `page.click(selector)` | Klik elemen pertama yang cocok (fallback `element.click()`). |
+| `page.click(selector)` | Klik elemen pertama yang cocok — **tap native** (MotionEvent `ACTION_DOWN`/`ACTION_UP`, lihat §7.2a); fallback JS bila elemen tak ditemukan. |
 | `page.type(selector, text, delay?)` | Mengetik `text` huruf demi huruf (default `delay` 50 ms). |
 | `page.fill(selector, text)` | Mengisi input sekaligus + event `input`/`change`/`blur`. |
 | `page.scrollTo(x, y)` | Menggulir ke koordinat absolut `(x, y)`. |
