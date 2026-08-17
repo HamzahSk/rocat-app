@@ -2,9 +2,6 @@ name: OMP DB Fixer & Auto-Test
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "prompt.md"
 
 permissions:
   contents: read
