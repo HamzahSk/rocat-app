@@ -3,6 +3,10 @@ package app.rocat.ui.browser
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.util.Log
+import android.view.View
+import android.webkit.ConsoleMessage
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -10,7 +14,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -56,6 +62,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -73,6 +80,9 @@ import app.rocat.core.common.util.WebViewUtil
 import app.rocat.di.AppViewModelFactory
 import app.rocat.i18n.StringKey
 import app.rocat.i18n.stringResource
+
+/** Logcat tag for JavaScript console messages piped from the page (Tahap 26.4). */
+private const val TAG_JS = "WebViewJS"
 
 /**
  * Tahap 25: the modern in-app browser tab. A free address bar accepts ANY URL (or a
@@ -100,6 +110,11 @@ fun BrowserScreen() {
     var webView by remember { mutableStateOf<WebView?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
+    // Tahap 26.2 (DOCS_WEBVIEW.md §"WebChromeClient"): the page handed a custom
+    // (fullscreen HTML5 video) view to the host app via onShowCustomView. Rendered as
+    // a full-screen overlay; null means nothing is fullscreen.
+    var fullscreenView by remember { mutableStateOf<View?>(null) }
+    var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
     // Guards against re-loading the start page right after the factory has already
     // loaded it (the AndroidView factory runs before the LaunchedEffect below).
     var lastAppliedNonce by remember { mutableStateOf(-1) }
@@ -141,7 +156,53 @@ fun BrowserScreen() {
                 viewModel.onProgressChanged(newProgress)
                 if (newProgress >= 100) isRefreshing = false
             }
+
+            // Tahap 26.4: pipe every JS console.log / warning / error straight to Logcat
+            // under a dedicated tag so a failing page (SyntaxError, cross-origin, CSP,
+            // ...) can be diagnosed from `adb logcat -s WebViewJS`.
+            override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
+                if (message == null) return false
+                val detail =
+                    "${message.sourceId()}:${message.lineNumber()}: ${message.message()}"
+                when (message.messageLevel()) {
+                    ConsoleMessage.MessageLevel.ERROR -> Log.e(TAG_JS, detail)
+                    ConsoleMessage.MessageLevel.WARNING -> Log.w(TAG_JS, detail)
+                    ConsoleMessage.MessageLevel.DEBUG -> Log.d(TAG_JS, detail)
+                    else -> Log.i(TAG_JS, detail)
+                }
+                return true
+            }
+
+            // Tahap 26.2 (DOCS_WEBVIEW.md §"WebChromeClient"): grant permission
+            // requests (geolocation / media / protected media) so modern sites that
+            // prompt at runtime never leave the page stuck waiting for an answer.
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                request?.grant(request.resources)
+            }
+
+            // Tahap 26.2 (DOCS_WEBVIEW.md §"WebChromeClient"): fullscreen support for
+            // HTML5 video — the page hands us a custom view to show edge-to-edge.
+            override fun onShowCustomView(view: View?, callback: WebChromeClient.CustomViewCallback?) {
+                if (fullscreenView != null) {
+                    callback?.onCustomViewHidden()
+                    return
+                }
+                fullscreenView = view
+                customViewCallback = callback
+            }
+
+            override fun onHideCustomView() {
+                customViewCallback?.onCustomViewHidden()
+                customViewCallback = null
+                fullscreenView = null
+            }
         }
+    }
+
+    fun closeFullscreen() {
+        customViewCallback?.onCustomViewHidden()
+        customViewCallback = null
+        fullscreenView = null
     }
 
     // Navigation requests (address bar / search) arrive through the load nonce.
@@ -170,6 +231,10 @@ fun BrowserScreen() {
     // the navigation stack handled by RoCatNav.
     BackHandler(enabled = state.canGoBack) { webView?.goBack() }
 
+    // Tahap 26.2: while a fullscreen (HTML5 video) view is on screen, Back exits it
+    // first (this handler is composed after the history one, so it wins while enabled).
+    BackHandler(enabled = fullscreenView != null) { closeFullscreen() }
+
     // Always tear the WebView down when the tab leaves the composition (no leaked views).
     DisposableEffect(Unit) {
         onDispose {
@@ -182,85 +247,114 @@ fun BrowserScreen() {
     val pullRefreshState = rememberPullToRefreshState()
     val isSecure = Uri.parse(state.currentUrl).scheme == "https"
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Material 3 top bar: back / forward, pill address bar, refresh↔stop, overflow.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 6.dp),
-        ) {
-            IconButton(onClick = { webView?.goBack() }, enabled = state.canGoBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(StringKey.back),
-                )
-            }
-            IconButton(onClick = { webView?.goForward() }, enabled = state.canGoForward) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = stringResource(StringKey.forward),
-                )
-            }
-            AddressBar(
-                value = state.urlInput,
-                isSecure = isSecure,
-                onValueChange = viewModel::onUrlInputChange,
-                onGo = viewModel::submitUrl,
-                onClear = viewModel::clearUrlInput,
-                modifier = Modifier.weight(1f),
-            )
-            if (state.isLoading) {
-                IconButton(onClick = { webView?.stopLoading() }) {
-                    Icon(Icons.Filled.Close, contentDescription = stringResource(StringKey.stop))
-                }
-            } else {
-                IconButton(onClick = viewModel::reload) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Material 3 top bar: back / forward, pill address bar, refresh↔stop, overflow.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
+            ) {
+                IconButton(onClick = { webView?.goBack() }, enabled = state.canGoBack) {
                     Icon(
-                        Icons.Filled.Refresh,
-                        contentDescription = stringResource(StringKey.refresh),
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(StringKey.back),
+                    )
+                }
+                IconButton(onClick = { webView?.goForward() }, enabled = state.canGoForward) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = stringResource(StringKey.forward),
+                    )
+                }
+                AddressBar(
+                    value = state.urlInput,
+                    isSecure = isSecure,
+                    onValueChange = viewModel::onUrlInputChange,
+                    onGo = viewModel::submitUrl,
+                    onClear = viewModel::clearUrlInput,
+                    modifier = Modifier.weight(1f),
+                )
+                if (state.isLoading) {
+                    IconButton(onClick = { webView?.stopLoading() }) {
+                        Icon(Icons.Filled.Close, contentDescription = stringResource(StringKey.stop))
+                    }
+                } else {
+                    IconButton(onClick = viewModel::reload) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = stringResource(StringKey.refresh),
+                        )
+                    }
+                }
+                IconButton(onClick = { showOptions = true }) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = stringResource(StringKey.moreOptions),
                     )
                 }
             }
-            IconButton(onClick = { showOptions = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = stringResource(StringKey.moreOptions))
+
+            // Thin, animated progress bar wired straight to WebChromeClient.onProgressChanged.
+            if (state.isLoading) {
+                LinearProgressIndicator(
+                    progress = { state.progress / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    webView?.reload()
+                },
+                modifier = Modifier.fillMaxSize(),
+                state = pullRefreshState,
+            ) {
+                // The browser engine: a real WebView rendered through AndroidView.
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        WebView(ctx).also { view ->
+                            WebViewUtil.setDefaultSettings(view)
+                            WebViewUtil.applyDesktopMode(view, state.desktopMode)
+                            view.webViewClient = webViewClient
+                            view.webChromeClient = chromeClient
+                            webView = view
+                            lastAppliedNonce = state.loadNonce
+                            viewModel.refreshNavState(navState())
+                            view.loadUrl(state.currentUrl)
+                        }
+                    },
+                    update = { },
+                )
             }
         }
 
-        // Thin, animated progress bar wired straight to WebChromeClient.onProgressChanged.
-        if (state.isLoading) {
-            LinearProgressIndicator(
-                progress = { state.progress / 100f },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = {
-                isRefreshing = true
-                webView?.reload()
-            },
-            modifier = Modifier.fillMaxSize(),
-            state = pullRefreshState,
-        ) {
-            // The browser engine: a real WebView rendered through AndroidView.
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    WebView(ctx).also { view ->
-                        WebViewUtil.setDefaultSettings(view)
-                        WebViewUtil.applyDesktopMode(view, state.desktopMode)
-                        view.webViewClient = webViewClient
-                        view.webChromeClient = chromeClient
-                        webView = view
-                        lastAppliedNonce = state.loadNonce
-                        viewModel.refreshNavState(navState())
-                        view.loadUrl(state.currentUrl)
-                    }
-                },
-                update = { },
-            )
+        // Tahap 26.2: fullscreen HTML5 video overlay — the view the page requested via
+        // WebChromeClient.onShowCustomView, shown edge-to-edge with a close button.
+        fullscreenView?.let { video ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                AndroidView(factory = { video }, modifier = Modifier.fillMaxSize())
+                IconButton(
+                    onClick = ::closeFullscreen,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = stringResource(StringKey.closeFullscreen),
+                        tint = Color.White,
+                    )
+                }
+            }
         }
     }
 

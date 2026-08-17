@@ -96,6 +96,8 @@ enum class StringKey(val key: String) {
     reload("reload"),
     secureSite("secure_site"),
     insecureSite("insecure_site"),
+    // Tahap 26.2: fullscreen HTML5 video (WebChromeClient.onShowCustomView)
+    closeFullscreen("close_fullscreen"),
 
     // Settings screen
     settingsTitle("settings_title"),

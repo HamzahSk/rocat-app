@@ -107,6 +107,7 @@ object EnglishStrings : Strings(
         StringKey.reload to "Reload",
         StringKey.secureSite to "Secure connection",
         StringKey.insecureSite to "Insecure connection",
+        StringKey.closeFullscreen to "Exit fullscreen",
 
         StringKey.settingsTitle to "Settings",
         StringKey.language to "Language",
@@ -241,6 +242,7 @@ object IndonesianStrings : Strings(
         StringKey.reload to "Muat ulang",
         StringKey.secureSite to "Koneksi aman",
         StringKey.insecureSite to "Koneksi tidak aman",
+        StringKey.closeFullscreen to "Keluar layar penuh",
 
         StringKey.settingsTitle to "Pengaturan",
         StringKey.language to "Bahasa",

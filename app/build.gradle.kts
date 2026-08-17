@@ -112,6 +112,9 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.documentfile)
+    // Tahap 26.2 (DOCS_WEBVIEW.md): Jetpack Webkit — recent WebView capabilities on
+    // older devices (keeps JS-heavy / SPA pages rendering instead of blank).
+    implementation(libs.androidx.webkit)
     implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

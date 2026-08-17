@@ -37,11 +37,19 @@ object WebViewUtil {
     }.getOrElse { NetworkHelper.DEFAULT_USER_AGENT }
 
     /**
-     * Applies the modern WebView configuration used by mihon: JavaScript, DOM storage
-     * and the app database are enabled, mixed content is allowed in compatibility mode
-     * (so SPA / heavy-JS pages never render blank), wide-viewport rendering is on, popups
-     * and zoom are supported and third-party cookies are accepted. The User-Agent is
-     * pinned to [NetworkHelper]'s so JS fetch / WebView rendering see the same identity.
+     * Applies the modern WebView configuration used by mihon, fully compliant with
+     * `DOCS_WEBVIEW.md` (Tahap 26):
+     * - JavaScript, DOM storage and the app database are enabled so SPA / heavy-JS pages
+     *   never render blank (§"Use JavaScript in WebView").
+     * - Mixed content is allowed in compatibility mode so http resources on https pages
+     *   still load (§"Work with WebView on earlier versions" context).
+     * - `setSupportMultipleWindows(true)` is set WITHOUT overriding
+     *   `WebChromeClient.onCreateWindow`, the documented safest behavior that blocks
+     *   `target="_blank"` popups while keeping the main frame rendering (§"Manage
+     *   windows").
+     * - Wide-viewport rendering, zoom and third-party cookies are supported; the
+     *   User-Agent is pinned to [NetworkHelper]'s so JS fetch / WebView rendering see the
+     *   same identity.
      */
     @SuppressLint("SetJavaScriptEnabled")
     fun setDefaultSettings(
@@ -58,7 +66,9 @@ object WebViewUtil {
             cacheMode = WebSettings.LOAD_DEFAULT
             userAgentString = userAgent
 
-            // Handle popups properly
+            // Handle popups properly (DOCS_WEBVIEW.md §"Manage windows"): enable
+            // multi-window support but never override onCreateWindow so popups are
+            // blocked and pages using target="_blank" don't hijack the browser.
             setSupportMultipleWindows(true)
 
             // Allow zooming
