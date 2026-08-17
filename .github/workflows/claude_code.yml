@@ -51,7 +51,7 @@ jobs:
           EOF
           
           # --- JALANKAN OMP ---
-          omp --model hcnsec_proxy/MiniMax-M3 -p "$(cat prompt.txt)" || true
+          omp --model hcnsec_proxy/MiniMax-M3 -p "$(cat prompt.md)" || true
 
       - name: Collect Changed and New Files
         run: |
