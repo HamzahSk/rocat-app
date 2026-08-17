@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -185,7 +186,7 @@ fun ScriptsScreen(
                 val grouped = state.scripts.groupBy { it.category }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(innerPadding),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 16.dp),
                 ) {
                     grouped.forEach { (category, scripts) ->
                         item(key = "category:$category") {
@@ -228,19 +229,21 @@ private fun CategoryHeader(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.weight(1f),
         )
         Text(
             text = count.toString(),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(end = 4.dp),
+            modifier = Modifier
+                .clip(MaterialTheme.shapes.small)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .padding(horizontal = 8.dp, vertical = 3.dp),
         )
         Icon(
             imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
@@ -317,7 +320,7 @@ private fun ScriptListItem(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(bg, RoundedCornerShape(16.dp)),
+                    .background(bg, MaterialTheme.shapes.medium),
                 contentAlignment = when (direction) {
                     SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
                     SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
@@ -338,7 +341,11 @@ private fun ScriptListItem(
             .padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
         Card(
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.medium,
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
@@ -393,8 +400,8 @@ private fun ScriptCover(iconUrl: String) {
     Box(
         modifier = Modifier
             .size(48.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.primaryContainer),
         contentAlignment = Alignment.Center,
     ) {
         if (iconUrl.isNotBlank()) {
@@ -408,7 +415,7 @@ private fun ScriptCover(iconUrl: String) {
             Icon(
                 Icons.Filled.Extension,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
     }
