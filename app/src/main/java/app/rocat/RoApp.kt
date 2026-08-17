@@ -1,6 +1,7 @@
 package app.rocat
 
 import android.app.Application
+import android.webkit.WebView
 import app.rocat.core.common.injekt.Injekt
 import app.rocat.crash.CrashHandler
 import app.rocat.di.AppModule
@@ -14,6 +15,12 @@ class RoApp : Application() {
 
         // Mirror mihon's App.onCreate() DI bootstrap.
         Injekt.importModule(AppModule(this))
+
+        // Tahap 27.4: enable chrome://inspect + richer WebView logs on debug builds so
+        // the emulator CI job / developer can diagnose blank-render issues remotely.
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
 
         // Global crash handler: persist the stack trace to Android/data/<pkg>/files/
         // and surface a CrashActivity instead of force-closing silently.

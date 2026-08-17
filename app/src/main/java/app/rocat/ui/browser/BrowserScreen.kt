@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.View
 import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -57,6 +58,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -101,13 +103,16 @@ private const val TAG_JS = "WebViewJS"
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowserScreen() {
+fun BrowserScreen(initialUrl: String? = null) {
     val viewModel: BrowserViewModel = viewModel(factory = AppViewModelFactory)
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
 
     var webView by remember { mutableStateOf<WebView?>(null) }
+    // Tahap 27.4: bumped when the renderer process dies (blank-white-page symptom) so
+    // AndroidView rebuilds a fresh WebView and reloads the current page.
+    var webViewEpoch by remember { mutableStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     // Tahap 26.2 (DOCS_WEBVIEW.md §"WebChromeClient"): the page handed a custom
@@ -137,6 +142,26 @@ fun BrowserScreen() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 viewModel.onPageFinished(url, navState())
                 isRefreshing = false
+                // Tahap 27.4: flag pages that "finish" without a title — a strong
+                // signal the SPA did not hydrate and the render came out blank, so the
+                // emulator CI job can see it from `adb logcat -s WebViewJS`.
+                if (view?.title.isNullOrBlank()) {
+                    Log.w(TAG_JS, "onPageFinished with blank title for $url — page may be blank / JS not hydrated")
+                }
+            }
+
+            // Tahap 27.4: the classic "blank white screen" root cause on modern sites —
+            // the renderer process crashed or was killed. Destroy the dead WebView and
+            // bump the epoch so AndroidView rebuilds it fresh and reloads the URL.
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                val crashed = detail?.didCrash() != false
+                if (crashed) {
+                    Log.e(TAG_JS, "renderer process gone (didCrash=$crashed) — rebuilding WebView")
+                    isRefreshing = false
+                    runCatching { view?.destroy() }
+                    webViewEpoch += 1
+                }
+                return true
             }
 
             override fun onReceivedError(
@@ -173,6 +198,12 @@ fun BrowserScreen() {
                 return true
             }
 
+            // Tahap 27.4: log the page title to the WebViewJS tag — positive evidence
+            // in the emulator CI job that the SPA actually hydrated and rendered.
+            override fun onReceivedTitle(view: WebView?, title: String?) {
+                if (!title.isNullOrBlank()) Log.i(TAG_JS, "page title: $title")
+            }
+
             // Tahap 26.2 (DOCS_WEBVIEW.md §"WebChromeClient"): grant permission
             // requests (geolocation / media / protected media) so modern sites that
             // prompt at runtime never leave the page stuck waiting for an answer.
@@ -203,6 +234,13 @@ fun BrowserScreen() {
         customViewCallback?.onCustomViewHidden()
         customViewCallback = null
         fullscreenView = null
+    }
+
+    // Tahap 27.2: a deep link (app.rocat.EXTRA_URL) loads the URL into the browser
+    // without any taps. The ViewModel consumes it once, so returning to this tab after
+    // browsing elsewhere does not force the same page again.
+    LaunchedEffect(initialUrl) {
+        initialUrl?.let(viewModel::acceptInitialUrl)
     }
 
     // Navigation requests (address bar / search) arrive through the load nonce.
@@ -314,22 +352,26 @@ fun BrowserScreen() {
                 state = pullRefreshState,
             ) {
                 // The browser engine: a real WebView rendered through AndroidView.
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        WebView(ctx).also { view ->
-                            WebViewUtil.setDefaultSettings(view)
-                            WebViewUtil.applyDesktopMode(view, state.desktopMode)
-                            view.webViewClient = webViewClient
-                            view.webChromeClient = chromeClient
-                            webView = view
-                            lastAppliedNonce = state.loadNonce
-                            viewModel.refreshNavState(navState())
-                            view.loadUrl(state.currentUrl)
-                        }
-                    },
-                    update = { },
-                )
+                // `key(webViewEpoch)` lets onRenderProcessGone rebuild the WebView from
+                // scratch (fresh AndroidView + factory) instead of a blank white screen.
+                key(webViewEpoch) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            WebView(ctx).also { view ->
+                                WebViewUtil.setDefaultSettings(view)
+                                WebViewUtil.applyDesktopMode(view, state.desktopMode)
+                                view.webViewClient = webViewClient
+                                view.webChromeClient = chromeClient
+                                webView = view
+                                lastAppliedNonce = state.loadNonce
+                                viewModel.refreshNavState(navState())
+                                view.loadUrl(state.currentUrl)
+                            }
+                        },
+                        update = { },
+                    )
+                }
             }
         }
 

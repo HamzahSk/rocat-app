@@ -65,6 +65,9 @@ object WebViewUtil {
             loadWithOverviewMode = true
             cacheMode = WebSettings.LOAD_DEFAULT
             userAgentString = userAgent
+            // Tahap 27.4: let SPA/JS auto-play inline media without a prior tap so
+            // media-heavy sites (CapCut, video editors, streaming) render their players.
+            mediaPlaybackRequiresUserGesture = false
 
             // Handle popups properly (DOCS_WEBVIEW.md §"Manage windows"): enable
             // multi-window support but never override onCreateWindow so popups are
@@ -77,6 +80,7 @@ object WebViewUtil {
             displayZoomControls = false
         }
 
+        runCatching { CookieManager.getInstance().setAcceptCookie(true) }
         runCatching { CookieManager.getInstance().acceptThirdPartyCookies(webView) }
     }
 

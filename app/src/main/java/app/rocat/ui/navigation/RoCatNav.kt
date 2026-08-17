@@ -74,7 +74,7 @@ private fun decode(key: String): Screen = when {
 }
 
 @Composable
-fun RoCatApp() {
+fun RoCatApp(initialUrl: String? = null) {
     // Tahap 15.1: reactive custom i18n provider.
     val i18nProvider: I18nProvider = remember { Injekt.get() }
     val strings by i18nProvider.strings.collectAsState()
@@ -88,7 +88,10 @@ fun RoCatApp() {
     // (no app restart required).
     val storageConfigured by storageManager.isConfigured.collectAsState()
 
-    if (!storageConfigured) {
+    // Tahap 27.2: a deep-link URL (from `app.rocat.EXTRA_URL`) skips the first-launch
+    // storage gate — the in-app browser works without a storage directory, so an
+    // automated test / external launcher can jump straight to the browser tab.
+    if (!storageConfigured && initialUrl == null) {
         I18nApp(strings = strings, language = language) {
             StorageSetupScreen(
                 onFolderPicked = { uri -> storageManager.takePersistablePermission(uri) },
@@ -99,18 +102,22 @@ fun RoCatApp() {
     }
 
     I18nApp(strings = strings, language = language) {
-        RoCatAppNav()
+        RoCatAppNav(initialUrl)
     }
 }
 
 @Composable
-private fun RoCatAppNav() {
+private fun RoCatAppNav(initialUrl: String? = null) {
     val backStack = rememberSaveable(
         saver = listSaver(
             save = { it.toList() },
             restore = { it.toMutableStateList() },
         ),
-    ) { mutableStateListOf(KEY_SCRIPTS) }
+    ) {
+        // Tahap 27.2: when the activity was launched with a target URL, land directly
+        // on the browser tab instead of the scripts list.
+        if (initialUrl != null) mutableStateListOf(KEY_BROWSER) else mutableStateListOf(KEY_SCRIPTS)
+    }
     val current = decode(backStack.last())
 
     fun goBack() {
@@ -165,7 +172,7 @@ private fun RoCatAppNav() {
                 )
                 is Screen.Detail -> ScriptDetailScreen(scriptId = current.scriptId, onBack = ::goBack)
                 is Screen.Import -> ImportScriptScreen(onBack = ::goBack)
-                is Screen.Browser -> BrowserScreen()
+                is Screen.Browser -> BrowserScreen(initialUrl = initialUrl)
                 is Screen.Settings -> SettingsScreen()
                 is Screen.Canvas -> ScriptCanvasScreen(scriptId = current.scriptId, onBack = ::goBack)
             }

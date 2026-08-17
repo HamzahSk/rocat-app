@@ -49,6 +49,29 @@ class BrowserViewModel(
     private val _commands = MutableSharedFlow<BrowserCommand>(extraBufferCapacity = 4)
     val commands: SharedFlow<BrowserCommand> = _commands.asSharedFlow()
 
+    // Tahap 27.2: guard so a deep-link URL (app.rocat.EXTRA_URL) is only applied once
+    // per ViewModel instance — tab switches back to the browser don't re-trigger it.
+    private var initialUrlConsumed = false
+
+    /** Applies a deep-link URL exactly once, if the instance hasn't handled one yet. */
+    fun acceptInitialUrl(url: String) {
+        if (initialUrlConsumed) return
+        initialUrlConsumed = true
+        navigateTo(url)
+    }
+
+    /** Programmatically loads [url] (deep links, scripts, ...) like an address-bar submit. */
+    fun navigateTo(url: String) {
+        val normalized = normalizeUrl(url)
+        mutableState.update {
+            it.copy(
+                urlInput = normalized,
+                currentUrl = normalized,
+                loadNonce = it.loadNonce + 1,
+            )
+        }
+    }
+
     fun onUrlInputChange(value: String) {
         mutableState.update { it.copy(urlInput = value) }
     }
