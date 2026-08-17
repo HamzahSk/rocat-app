@@ -1,4 +1,3 @@
-
 # Role and Objective
 Kamu adalah **Senior Android Engineer, UI/UX Expert, dan WebView Architect** handal. Setelah sukses dengan Tahap 24 (Modernisasi UI & Injeksi Header Media), sekarang kita memasuki **Tahap 25: Perombakan UI/UX In-App Browser, Dukungan Mode Desktop & Optimalisasi JavaScript Engine**.
 Berdasarkan evaluasi, komponen Browser saat ini memiliki tampilan yang terlalu kuno, minim fitur standar, dan gagal merender halaman web berbasis JavaScript modern secara utuh. Fokus utama tahap ini adalah:
