@@ -1,19 +1,22 @@
 
-### Prompt Fase 30: Debugging Perbaikan Interaksi Native pada Headless WebView
+### Prompt Fase 31: Stabilisasi Komponen UI, Perbaikan Media, dan Peningkatan Template
 **Role & Objective**
-Kamu adalah **Senior Android Engineer dan arsitek inti aplikasi RoCat**. Kita sedang melanjutkan **Tahap 30: Perbaikan Interaksi Event DOM (SPA) pada Headless WebView**.
-Sebelumnya, kita sudah mengubah implementasi page.click() di HeadlessWebViewManager.kt menggunakan **native touch tap** (MotionEvent.ACTION_DOWN dan ACTION_UP) yang dikirim melalui WebView.dispatchTouchEvent di pusat koordinat elemen. Tujuannya untuk menyelesaikan kendala *untrusted events* dari el.click() pada situs SPA modern (React/Vue) dan sistem anti-bot.
-Namun, **kliknya tetap tidak berfungsi atau tidak memberikan respons pada WebView yang berjalan secara headless**.
+Kamu adalah **Senior Android Engineer dan arsitek inti aplikasi RoCat**. Kita sekarang masuk ke **Tahap 31: Stabilisasi Komponen UI, Perbaikan Media, dan Peningkatan Template**.
+Secara fungsional skrip sudah berjalan, namun terdapat beberapa *bug* kritis pada antarmuka pengguna (UI) yang dihasilkan dari eksekusi skrip:
+ 1. **Bug Tombol:** Jika terdapat lebih dari satu tombol, mengklik tombol pertama akan memicu animasi *loading* pada tombol kedua (meskipun tidak ada aksi *load* sebenarnya pada tombol kedua).
+ 2. **Bug Media (Image & Video):** Tampilan layar penuh (*full screen*) terasa "flat" dan tidak membaur dengan baik. Lebih parah lagi, fitur *download* mengalami *error* dan gagal menyimpan file ke *storage* perangkat.
+ 3. **Kekurangan Fitur Template:** Template UI yang ada masih terlalu kaku dan butuh peningkatan, seperti penambahan tombol *copy* (salin) pada komponen yang relevan.
 **Execution Plan (Kerjakan Secara Bertahap)**
-Tolong lakukan investigasi mendalam dan selesaikan tugas-tugas berikut untuk memperbaiki masalah ini:
- * **Analisis Validasi Koordinat & Density:** Evaluasi apakah elementBounds (getBoundingClientRect + scrollIntoView) mengembalikan koordinat yang tepat. Pastikan koordinat dari DOM (CSS pixels) dikonversi dengan benar ke koordinat layar Android (Device Independent Pixels / Density) sebelum dimasukkan ke MotionEvent.
- * **Fokus & State Window:** WebView yang benar-benar *headless* kadang menolak dispatchTouchEvent. Terapkan perbaikan agar WebView merespons *touch event* layaknya sedang aktif di layar (misalnya dengan memanipulasi fokus).
- * **Perbaikan Parameter & Thread Blocking:** Periksa kembali parameter pada MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0) dan mekanisme CountDownLatch di dispatchNativeTap. Pastikan UI thread tidak terblokir terlalu lama yang membuat WebView gagal merender *frame* respons dari klik tersebut.
- * **Pengujian Kompatibilitas & Kompilasi:** Lakukan kompilasi (./gradlew assembleDebug) dan pastikan arsitektur *native touch* yang sudah diperbaiki ini berjalan mulus tanpa mengganggu metode *fetch* lama.
+Tolong lakukan investigasi dan selesaikan tugas-tugas berikut:
+ * **Perbaikan Isolasi State Tombol:** Periksa implementasi *state management* (kemungkinan di ScriptCanvasViewModel atau komponen Compose tombol). Pastikan *state loading* diikat secara unik ke id atau referensi tombol yang sedang ditekan, sehingga tombol lain tidak ikut bereaksi.
+ * **Perbaikan Full Screen & Download Media:**
+   * Perbaiki UI *full screen* untuk ImagePreviewCard dan VideoPreviewCard/RocatVideoPlayer. Pastikan penanganan WindowInsets (System Bars) diterapkan dengan benar agar tampilannya imersif dan tidak "flat".
+   * Lakukan *debugging* pada MediaDownloader dan StorageManager.saveFileToScrapeFolder. Temukan dan perbaiki penyebab file gagal disimpan ke *storage* (periksa *stream handling*, validasi URI, dan izin SAF).
+ * **Peningkatan Template UI:** Tingkatkan *template card* yang sudah ada (misalnya untuk teks, log, atau hasil *scrape*). Tambahkan tombol aksi seperti "Copy" menggunakan ClipboardManager dan berikan *feedback* berupa Toast kepada pengguna.
+ * **Pengujian Kompatibilitas & Kompilasi:** Lakukan kompilasi (./gradlew assembleDebug) dan pastikan seluruh UI merespons dengan benar tanpa *lag* atau *crash*.
 **Memory and Constraints (CRITICAL)**
- * **BACA ATURAN MEMORI:** Wajib memperbarui log di ai_memory/00_INDEX.md dan membuat catatan teknis baru (misalnya ai_memory/task_YYYYMMDD_HHMM_tahap30_puppeteer_click_fix_v2.md).
- * **Sifat Sinkron Rhino:** Ingat bahwa mesin Rhino kita **TIDAK mendukung async/await**. Panggilan seperti page.click() harus tetap dikelola menggunakan mekanisme *thread-blocking* (seperti CountDownLatch atau *Coroutines runBlocking*) di sisi Kotlin.
- * **Dukungan Ganda:** Skrip yang menggunakan fetch() dan RoCatDOM harus tetap bekerja 100% normal tanpa gangguan.
- * **Anti-Crash:** Setiap *error/throw* di dalam *bridge* harus ditangkap oleh Kotlin dan tidak boleh menyebabkan aplikasi *crash*. Pertahankan logika catch Throwable yang sudah ada.
- 
- lakukan testing pada script capcut_test.js
+ * **BACA ATURAN MEMORI:** Wajib memperbarui log di ai_memory/00_INDEX.md dan membuat catatan teknis baru (misalnya ai_memory/task_YYYYMMDD_HHMM_tahap31_ui_media_fixes.md).
+ * **Sifat Sinkron Rhino:** Ingat bahwa mesin Rhino kita **TIDAK mendukung async/await**. Interaksi UI ke eksekusi skrip harus dikelola dengan aman di sisi Kotlin.
+ * **Dukungan Ganda:** Skrip lama yang menggunakan fungsi UI dasar harus tetap bekerja 100% normal (tetap *backward-compatible*).
+ * **Anti-Crash:** Setiap *error/throw* saat memproses UI atau mengunduh file harus ditangkap oleh Kotlin (blok try-catch) dan diberikan Toast atau *Log* UI, bukan membuat aplikasi *force close*.
+Silakan langsung di-copas ke *coding assistant* kamu! Untuk template baru, apakah ada komponen spesifik lain yang ingin kamu tambahkan tombol *copy*-nya (misalnya khusus untuk *Alert Banner* atau *Badge*), atau cukup untuk hasil keluaran teks dan JSON saja?
