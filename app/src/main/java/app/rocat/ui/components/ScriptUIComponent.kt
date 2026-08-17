@@ -20,8 +20,13 @@ sealed class ScriptUIComponent {
         val value: String = "",
     ) : ScriptUIComponent()
 
-    /** A button that re-invokes the script function named [functionName]. */
+    /** A button that re-invokes the script function named [functionName]. [id] (Tahap
+     *  31.1) is a stable identifier for the instance — it survives recompositions, is
+     *  used by the canvas ViewModel to bind a per-button loading state, and ensures the
+     *  spinner only animates on the button that was actually pressed (previously a single
+     *  `executing` flag drove every button in the canvas). */
     data class Button(
+        val id: String,
         val label: String,
         val functionName: String,
     ) : ScriptUIComponent()

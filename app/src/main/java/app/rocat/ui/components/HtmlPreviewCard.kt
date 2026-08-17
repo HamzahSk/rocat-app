@@ -9,7 +9,8 @@ import android.text.Spanned
 import android.text.style.StyleSpan
 import android.text.style.UnderlineSpan
 import android.text.style.URLSpan
-import androidx.compose.foundation.layout.Box
+import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,11 +22,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -36,22 +38,28 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import app.rocat.i18n.StringKey
-import app.rocat.i18n.stringResource
 
 /**
  * Script-driven rich-text HTML preview card (Tahap 22.2). Converts the HTML with
  * `android.text.Html.fromHtml` (bold / italic / underline / links / lists) and renders
  * it as an [AnnotatedString] inside a compact, scrollable block — no heavyweight
  * WebView needed. Tapping a link opens the system browser.
+ *
+ * **Tahap 31.4**: a small **Copy** text button now sits in the header (when
+ * [allowCopy] is true) — copies the original [htmlContent] string to the clipboard
+ * and confirms with [copiedMessage] via Toast, mirroring the JSON log card UX.
  */
 @Composable
 fun HtmlPreviewCard(
     htmlContent: String,
     title: String = "",
+    allowCopy: Boolean = true,
+    copyLabel: String = "Copy",
+    copiedMessage: String = "Copied to clipboard",
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val linkStyle = SpanStyle(
         color = MaterialTheme.colorScheme.primary,
         textDecoration = TextDecoration.Underline,
@@ -70,50 +78,45 @@ fun HtmlPreviewCard(
     val annotated = remember(spanned, linkStyle, linkInteraction) {
         spannedToAnnotated(spanned, linkStyle, linkInteraction)
     }
-    val plainText = remember(spanned) { spanned.toString() }
 
     ScriptCanvasCard(modifier = modifier) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            if (title.isNotBlank()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp),
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (plainText.isNotBlank()) {
-                        CopyIconButton(
-                            text = plainText,
-                            label = stringResource(StringKey.copyText),
-                            message = stringResource(StringKey.textCopied),
+            // Header row: title on the left, optional Copy button on the right (Tahap 31.4).
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 4.dp, top = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = title.ifBlank { "HTML Preview" },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                if (allowCopy && htmlContent.isNotBlank()) {
+                    TextButton(onClick = {
+                        clipboard.setText(AnnotatedString(htmlContent))
+                        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text(
+                            copyLabel,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         )
                     }
                 }
-                Spacer(Modifier.height(4.dp))
             }
-            Box {
-                Text(
-                    text = annotated,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 320.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(12.dp),
-                )
-                if (title.isBlank() && plainText.isNotBlank()) {
-                    CopyIconButton(
-                        text = plainText,
-                        label = stringResource(StringKey.copyText),
-                        message = stringResource(StringKey.textCopied),
-                        modifier = Modifier.align(Alignment.TopEnd),
-                    )
-                }
-            }
+            if (title.isNotBlank()) Spacer(Modifier.height(4.dp))
+            Text(
+                text = annotated,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 320.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(12.dp),
+            )
         }
     }
 }

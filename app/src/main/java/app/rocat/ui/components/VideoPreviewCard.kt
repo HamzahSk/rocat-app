@@ -31,8 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
-import app.rocat.i18n.StringKey
-import app.rocat.i18n.stringResource
 
 /**
  * Script-driven video preview card (Tahap 18.2). Shows a 16:9 placeholder with the
@@ -40,6 +38,9 @@ import app.rocat.i18n.stringResource
  * [RocatVideoPlayer] (Media3 / ExoPlayer, supports HLS `.m3u8` streams), and a
  * **Download Video** button that saves the file into the active scrape folder via
  * [MediaDownloader] + [app.rocat.storage.StorageManager].
+ *
+ * **Tahap 31.3**: [noStorageMessage] is shown via Toast when [folder] is null so a
+ * download attempt without a configured storage folder is no longer silent.
  */
 @Composable
 fun VideoPreviewCard(
@@ -54,6 +55,7 @@ fun VideoPreviewCard(
     downloadLabel: String,
     successMessage: String,
     failureMessage: String,
+    noStorageMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
     var playing by remember { mutableStateOf(false) }
@@ -74,24 +76,14 @@ fun VideoPreviewCard(
 
             if (title.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    CopyIconButton(
-                        text = url,
-                        label = stringResource(StringKey.copyUrl),
-                        message = stringResource(StringKey.urlCopied),
-                    )
-                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
             }
 
             Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
@@ -116,6 +108,7 @@ fun VideoPreviewCard(
                                 headers = headers,
                                 successMessage = successMessage,
                                 failureMessage = failureMessage,
+                                noStorageMessage = noStorageMessage,
                             )
                         },
                         enabled = downloader.status !is DownloadStatus.Downloading,

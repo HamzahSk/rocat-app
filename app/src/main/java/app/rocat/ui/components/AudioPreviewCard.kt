@@ -37,8 +37,6 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import app.rocat.core.common.network.NetworkHelper
-import app.rocat.i18n.StringKey
-import app.rocat.i18n.stringResource
 import kotlinx.coroutines.delay
 import java.util.Locale
 
@@ -61,10 +59,11 @@ fun AudioPreviewCard(
     downloadLabel: String,
     successMessage: String,
     failureMessage: String,
+    noStorageMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
     val downloader = rememberMediaDownloaderState()
+    val context = LocalContext.current
 
     val player = remember(url, headers) {
         ExoPlayer.Builder(context).build().apply {
@@ -113,24 +112,14 @@ fun AudioPreviewCard(
     ElevatedCard(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Column(modifier = Modifier.fillMaxWidth()) {
             if (title.isNotBlank()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp),
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    CopyIconButton(
-                        text = url,
-                        label = stringResource(StringKey.copyUrl),
-                        message = stringResource(StringKey.urlCopied),
-                    )
-                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp),
+                )
             }
 
             Row(
@@ -170,10 +159,9 @@ fun AudioPreviewCard(
                             headers = headers,
                             successMessage = successMessage,
                             failureMessage = failureMessage,
+                            noStorageMessage = noStorageMessage,
                         )
                     },
-                    enabled = downloader.status !is DownloadStatus.Downloading,
-                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                 ) {
                     if (downloader.status is DownloadStatus.Downloading) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)

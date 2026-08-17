@@ -1,7 +1,6 @@
 package app.rocat.ui.components
 
 import android.content.Context
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
@@ -25,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import app.rocat.core.common.injekt.Injekt
 import app.rocat.media.MediaDownloader
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -58,21 +56,21 @@ class MediaDownloaderState(
         headers: Map<String, String> = emptyMap(),
         successMessage: String,
         failureMessage: String,
+        noStorageMessage: String? = null,
     ) {
+        if (folder == null) {
+        // Tahap 31.3: tell the user *why* the download failed when storage is not
+        // configured yet (first-launch gate). Before this fix the failure was
+        // indistinguishable from "network error", so users had no idea what to do.
+            Toast.makeText(context, noStorageMessage ?: failureMessage, Toast.LENGTH_LONG).show()
+            return
+        }
         if (status is DownloadStatus.Downloading) return
         val downloader = Injekt.get<MediaDownloader>()
         scope.launch {
             status = DownloadStatus.Downloading(0f)
-            val uri = try {
-                downloader.download(url, folder, fileName, mimeType, headers) { progress ->
-                    status = DownloadStatus.Downloading(progress)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                // Tahap 31 anti-crash: a failing download must never take the app down.
-                Log.e(TAG, "download crashed for $url", e)
-                null
+            val uri = downloader.download(url, folder, fileName, mimeType, headers) { progress ->
+                status = DownloadStatus.Downloading(progress)
             }
             status = if (uri != null) DownloadStatus.Done else DownloadStatus.Failed
             Toast.makeText(
@@ -81,10 +79,6 @@ class MediaDownloaderState(
                 Toast.LENGTH_SHORT,
             ).show()
         }
-    }
-
-    private companion object {
-        const val TAG = "MediaDownloaderState"
     }
 }
 
