@@ -1,0 +1,63 @@
+name: Build Rocat App
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - '.github/workflows/build-rocat-app.yml'
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Memungkinkan kamu nge-trigger build manual dari tab Actions
+
+jobs:
+  build:
+    name: Build Signed Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # 1. Decode keystore dari Base64 secret ke file jks
+      - name: Decode Keystore
+        env:
+          ENCODED_STRING: ${{ secrets.SIGNING_KEY }}
+        run: |
+          echo $ENCODED_STRING | base64 -d > keystore.jks
+
+      # 2. Buat file keystore.properties sesuai format yang dibaca oleh build.gradle.kts
+      - name: Create keystore.properties
+        env:
+          STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "storeFile=keystore.jks" > keystore.properties
+          echo "storePassword=$STORE_PASSWORD" >> keystore.properties
+          echo "keyAlias=$KEY_ALIAS" >> keystore.properties
+          echo "keyPassword=$KEY_PASSWORD" >> keystore.properties
+
+      # 3. Build APK
+      - name: Build Release APK
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      # 4. Upload HANYA APK arm64-v8a
+      - name: Upload arm64 APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rocat-app-arm64-release
+          # Path diubah karena project sudah berada di root repository
+          path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
