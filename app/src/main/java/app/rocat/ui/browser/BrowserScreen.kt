@@ -1,5 +1,6 @@
 package app.rocat.ui.browser
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -8,6 +9,7 @@ import android.view.View
 import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -78,6 +80,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.rocat.core.common.network.NetworkHelper
 import app.rocat.core.common.util.WebViewUtil
 import app.rocat.di.AppViewModelFactory
 import app.rocat.i18n.StringKey
@@ -126,6 +129,10 @@ fun BrowserScreen(initialUrl: String? = null) {
 
     // Captured in the composable so the non-composable callbacks below can use them.
     val linkCopiedMessage = stringResource(StringKey.linkCopied)
+    val sslDialogTitle = stringResource(StringKey.insecureConnectionTitle)
+    val sslDialogMessage = stringResource(StringKey.insecureConnectionMessage)
+    val sslProceedLabel = stringResource(StringKey.proceed)
+    val sslCancelLabel = stringResource(StringKey.cancel)
 
     fun navState(): BrowserViewModel.NavigationState =
         BrowserViewModel.NavigationState(
@@ -148,6 +155,50 @@ fun BrowserScreen(initialUrl: String? = null) {
                 if (view?.title.isNullOrBlank()) {
                     Log.w(TAG_JS, "onPageFinished with blank title for $url — page may be blank / JS not hydrated")
                 }
+            }
+
+            // Tahap 28.2 (sweb-master `shouldOverrideUrlLoading`): `intent://` links
+            // (Play Store / app deep links) fall back to their `browser_fallback_url`
+            // so the in-app browser never dead-ends on a scheme it cannot load.
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                if (url?.startsWith("intent://") == true) {
+                    val fallbackMarker = ";S.browser_fallback_url="
+                    val start = url.indexOf(fallbackMarker)
+                    if (start != -1) {
+                        val valueStart = start + fallbackMarker.length
+                        val end = url.indexOf(';', valueStart)
+                        if (end != -1 && end != valueStart) {
+                            val fallback = Uri.decode(url.substring(valueStart, end))
+                            view?.loadUrl(fallback)
+                            return true
+                        }
+                    }
+                }
+                return false
+            }
+
+            // Tahap 28.2 (sweb-master `onReceivedSslError`): by default WebView CANCELS
+            // the load on any SSL error → blank white page. Like the reference browser,
+            // surface a dialog so the user can explicitly proceed (mirroring
+            // sweb-master's "Proceed" / "Cancel" flow).
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
+                if (handler == null || error == null) return
+                val errorDescription = error.primaryError.let { code ->
+                    when (code) {
+                        android.net.http.SslError.SSL_NOTYETVALID -> "Not yet valid"
+                        android.net.http.SslError.SSL_EXPIRED -> "Expired"
+                        android.net.http.SslError.SSL_IDMISMATCH -> "Hostname mismatch"
+                        android.net.http.SslError.SSL_UNTRUSTED -> "Untrusted CA"
+                        android.net.http.SslError.SSL_DATE_INVALID -> "Invalid date"
+                        else -> "Error $code"
+                    }
+                }
+                AlertDialog.Builder(context)
+                    .setTitle(sslDialogTitle)
+                    .setMessage(String.format(sslDialogMessage, error.url, errorDescription))
+                    .setPositiveButton(sslProceedLabel) { _, _ -> handler.proceed() }
+                    .setNegativeButton(sslCancelLabel) { _, _ -> handler.cancel() }
+                    .show()
             }
 
             // Tahap 27.4: the classic "blank white screen" root cause on modern sites —
@@ -359,7 +410,12 @@ fun BrowserScreen(initialUrl: String? = null) {
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
                             WebView(ctx).also { view ->
-                                WebViewUtil.setDefaultSettings(view)
+                                // Tahap 28.2: the browser presents the app's shared network
+                                // identity (NetworkHelper.DEFAULT_USER_AGENT) so OkHttp /
+                                // scripts and the WebView agree, while sweb-master's
+                                // proven JS-engine settings (WebViewUtil.setDefaultSettings)
+                                // keep SPA / heavy-JS pages from rendering blank.
+                                WebViewUtil.setDefaultSettings(view, NetworkHelper.DEFAULT_USER_AGENT)
                                 WebViewUtil.applyDesktopMode(view, state.desktopMode)
                                 view.webViewClient = webViewClient
                                 view.webChromeClient = chromeClient

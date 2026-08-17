@@ -108,6 +108,9 @@ object EnglishStrings : Strings(
         StringKey.secureSite to "Secure connection",
         StringKey.insecureSite to "Insecure connection",
         StringKey.closeFullscreen to "Exit fullscreen",
+        StringKey.insecureConnectionTitle to "Insecure connection",
+        StringKey.insecureConnectionMessage to "The site's security certificate could not be verified.\nURL: %1\$s\n\nError: %2\$s\n\nDo you want to continue anyway?",
+        StringKey.proceed to "Proceed",
 
         StringKey.settingsTitle to "Settings",
         StringKey.language to "Language",
@@ -243,6 +246,9 @@ object IndonesianStrings : Strings(
         StringKey.secureSite to "Koneksi aman",
         StringKey.insecureSite to "Koneksi tidak aman",
         StringKey.closeFullscreen to "Keluar layar penuh",
+        StringKey.insecureConnectionTitle to "Koneksi tidak aman",
+        StringKey.insecureConnectionMessage to "Sertifikat keamanan situs tidak dapat diverifikasi.\nURL: %1\$s\n\nKesalahan: %2\$s\n\nLanjutkan juga?",
+        StringKey.proceed to "Lanjutkan",
 
         StringKey.settingsTitle to "Pengaturan",
         StringKey.language to "Bahasa",

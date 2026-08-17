@@ -98,6 +98,10 @@ enum class StringKey(val key: String) {
     insecureSite("insecure_site"),
     // Tahap 26.2: fullscreen HTML5 video (WebChromeClient.onShowCustomView)
     closeFullscreen("close_fullscreen"),
+    // Tahap 28.2: SSL error dialog (mirrors sweb-master WebViewClient.onReceivedSslError)
+    insecureConnectionTitle("insecure_connection_title"),
+    insecureConnectionMessage("insecure_connection_message"),
+    proceed("proceed"),
 
     // Settings screen
     settingsTitle("settings_title"),

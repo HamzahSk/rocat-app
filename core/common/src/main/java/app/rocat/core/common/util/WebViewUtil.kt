@@ -37,19 +37,34 @@ object WebViewUtil {
     }.getOrElse { NetworkHelper.DEFAULT_USER_AGENT }
 
     /**
-     * Applies the modern WebView configuration used by mihon, fully compliant with
-     * `DOCS_WEBVIEW.md` (Tahap 26):
+     * Applies the WebView configuration proven to run JavaScript in the reference
+     * browser app **sweb-master** (Tahap 28 — ground truth for JS execution), kept
+     * compatible with `DOCS_WEBVIEW.md` (Tahap 26) and mihon's `WebViewUtil`:
      * - JavaScript, DOM storage and the app database are enabled so SPA / heavy-JS pages
-     *   never render blank (§"Use JavaScript in WebView").
+     *   never render blank. `allowUniversalAccessFromFileURLs` mirrors sweb-master's
+     *   `createWebView()` — file:// frames may reach cross-origin resources the way the
+     *   reference browser does (sweb's `setAppCacheEnabled(true)` is a no-op on modern
+     *   Chromium where the API was removed; `cacheMode = LOAD_DEFAULT` covers it).
+     * - `layoutAlgorithm = SINGLE_COLUMN` mirrors sweb-master's `createWebView()` and is
+     *   kept for fidelity with the proven reference browser even though Chromium has
+     *   deprecated the flag. Verification on https://www.capcut.com/id-id/signup (a
+     *   dark-themed React SPA) during Tahap 28 found the page's SPA does not fully paint
+     *   its theme in the emulator's Chrome-113 WebView in ANY configuration (bare,
+     *   sweb-style, both UAs) — the page logs its own React hydration warnings
+     *   (#418/#423/#425) plus a CSP inline-script refusal, which also affect the system
+     *   browser. The page loads, the title hydrates ("Daftar - CapCut") and no app
+     *   process crashes; the residual blank area is a page/engine-version issue, not a
+     *   WebView-settings one.
      * - Mixed content is allowed in compatibility mode so http resources on https pages
      *   still load (§"Work with WebView on earlier versions" context).
      * - `setSupportMultipleWindows(true)` is set WITHOUT overriding
      *   `WebChromeClient.onCreateWindow`, the documented safest behavior that blocks
      *   `target="_blank"` popups while keeping the main frame rendering (§"Manage
      *   windows").
-     * - Wide-viewport rendering, zoom and third-party cookies are supported; the
-     *   User-Agent is pinned to [NetworkHelper]'s so JS fetch / WebView rendering see the
-     *   same identity.
+     * - Wide-viewport rendering, zoom and third-party cookies are supported; the browser
+     *   presents the app's shared network identity ([NetworkHelper.DEFAULT_USER_AGENT], a
+     *   modern Chrome UA exactly like sweb-master's hardcoded one) so OkHttp / scripts and
+     *   the WebView see the same identity.
      */
     @SuppressLint("SetJavaScriptEnabled")
     fun setDefaultSettings(
@@ -60,7 +75,17 @@ object WebViewUtil {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
+            // Tahap 28.2 (sweb-master `createWebView`): the reference browser enables the
+            // application cache (`setAppCacheEnabled(true)`) so JS pages that persist
+            // across navigations (SPA routing, offline assets) keep working. That API was
+            // removed from `WebSettings` at compileSdk 33+ (Chromium dropped the app
+            // cache), so `cacheMode = LOAD_DEFAULT` below already gives modern WebViews
+            // the same HTTP-cache behavior — the sweb intent is preserved.
+            // Tahap 28.2 (sweb-master `createWebView`): let file:// contexts access
+            // cross-origin resources the way the proven reference browser allows.
+            allowUniversalAccessFromFileURLs = true
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            layoutAlgorithm = WebSettings.LayoutAlgorithm.SINGLE_COLUMN
             useWideViewPort = true
             loadWithOverviewMode = true
             cacheMode = WebSettings.LOAD_DEFAULT
