@@ -127,6 +127,23 @@ interface ScriptBrowserBridge {
     fun screenshot(path: String = "", quality: Int = 80): String = ""
 
     /**
+     * Scrolls the live page to absolute viewport coordinates `(x, y)`. Used to move the
+     * page around (or back to top) without triggering lazy-load; see [scrollBottom].
+     *
+     * @return `true` when the scroll command reached the page.
+     */
+    fun scrollTo(x: Int, y: Int): Boolean = false
+
+    /**
+     * Scrolls the live page to the bottom of the document — the standard way to trigger
+     * *lazy-load* / infinite-scroll sites (newsfeeds, galleries, search results) so
+     * content that only renders near the viewport gets injected into the DOM.
+     *
+     * @return `true` when the scroll command reached the page.
+     */
+    fun scrollBottom(): Boolean = false
+
+    /**
      * Returns the cookies of the current page as a **JSON array string** — each
      * entry `{ "name", "value", "domain", "path", "url" }`. The WebView
      * `CookieManager` is the exact store shared with the OkHttp scraper via

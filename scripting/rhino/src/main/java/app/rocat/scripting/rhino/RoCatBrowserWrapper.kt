@@ -13,7 +13,13 @@ package app.rocat.scripting.rhino
  *  - `page.waitForSelector` / `page.waitForLoad` / `page.waitForTimeout`
  *  - `page.evaluate(fn, args)` / `page.content()` / `page.url()` / `page.title()`
  *  - `page.screenshot(options)` / `page.cookies()` / `page.setCookie` / `page.clearCookies()`
+ *  - `page.scrollTo(x, y)` / `page.scrollBottom()`                      (Tahap 29)
  *  - `locator.click/fill/text/getAttribute/exists/waitFor/all/clickAll/type/scrollIntoView/getBoundingRect`
+ *
+ *  Tahap 29 adds a Puppeteer-like **global `page`** convenience facade that drives the
+ *  singleton Browser directly (`page.goto(url)` / `page.click(sel)` / `page.type(sel, txt)`
+ *  / `page.scrollBottom()` / `page.screenshot(...)`), so scripts with a single live tab
+ *  don't need to touch `RoCatBrowser` at all.
  *
  * Everything is built on top of the synchronous `RoCatPage.*` primitives so it works in
  * Rhino-1.7.15 (no `async`/`await`, no `class`, no spread, no optional chaining — the
@@ -236,6 +242,23 @@ var RoCatBrowser = (function () {
         return this;
     };
 
+    Page.prototype.type = function (selector, text, delay) {
+        return this.locator(selector).type(text, delay);
+    };
+
+    Page.prototype.scrollTo = function (x, y) {
+        if (!hasPage() || !RoCatPage.scrollTo) return false;
+        return RoCatPage.scrollTo(
+            (typeof x === "number") ? x : 0,
+            (typeof y === "number") ? y : 0
+        );
+    };
+
+    Page.prototype.scrollBottom = function () {
+        if (!hasPage() || !RoCatPage.scrollBottom) return false;
+        return RoCatPage.scrollBottom();
+    };
+
     Page.prototype.waitForLoad = function (state, timeout) {
         state = state || "load";
         timeout = (typeof timeout === "number") ? timeout : _defaultTimeout;
@@ -395,6 +418,41 @@ var RoCatBrowser = (function () {
             _defaultTimeout = (typeof timeout === "number") ? timeout : _defaultTimeout;
         },
         hasBrowser: hasPage
+    };
+})();
+
+// Tahap 29 — a Puppeteer-like convenience **global `page`** facade. Scripts that only
+// need one live tab can drive it directly (page.goto / page.click / page.type / ...)
+// without creating a Browser instance, mirroring Puppeteer's `page.*` API. It shares
+// the singleton Browser from RoCatBrowser.getInstance() so `page` and `RoCatBrowser`
+// always operate on the same underlying WebView.
+var page = (function () {
+    function current() {
+        return RoCatBrowser.getInstance().page();
+    }
+    return {
+        goto: function (url, options) { return current().goto(url, options); },
+        waitForSelector: function (selector, timeout) { return current().waitForSelector(selector, timeout); },
+        waitForTimeout: function (ms) { return current().waitForTimeout(ms); },
+        click: function (selector) { return current().click(selector); },
+        type: function (selector, text, delay) { return current().type(selector, text, delay); },
+        fill: function (selector, text) { return current().fill(selector, text); },
+        scrollTo: function (x, y) { return current().scrollTo(x, y); },
+        scrollBottom: function () { return current().scrollBottom(); },
+        evaluate: function (fn, args) { return current().evaluate(fn, args); },
+        content: function () { return current().content(); },
+        url: function () { return current().url(); },
+        title: function () { return current().title(); },
+        screenshot: function (options) { return current().screenshot(options); },
+        cookies: function () { return current().cookies(); },
+        setCookie: function (cookie) { return current().setCookie(cookie); },
+        clearCookies: function () { return current().clearCookies(); },
+        locator: function (selector) { return current().locator(selector); },
+        goBack: function () { return current().goBack(); },
+        goForward: function () { return current().goForward(); },
+        reload: function () { return current().reload(); },
+        stop: function () { return current().stop(); },
+        close: function () { return current().close(); }
     };
 })();
 """

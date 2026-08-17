@@ -128,6 +128,16 @@ class RoCatBrowserAutomationTest {
             return true
         }
 
+        override fun scrollTo(x: Int, y: Int): Boolean {
+            calls += "scrollTo:$x:$y"
+            return true
+        }
+
+        override fun scrollBottom(): Boolean {
+            calls += "scrollBottom"
+            return true
+        }
+
         override fun screenshot(path: String, quality: Int): String {
             calls += "screenshot:$path:$quality"
             return "/cache/browser_screenshots/shot_1.png"
@@ -351,5 +361,80 @@ class RoCatBrowserAutomationTest {
         assertTrue("main failed: $result", result is ScriptResult.Success)
         val json = (result as ScriptResult.Success).value
         assertTrue("must throw a timeout error in $json", json.contains("threw:Timeout waiting for selector: #ghost"))
+    }
+
+    @Test
+    fun `tahap29 global page facade drives goto click type content screenshot`() = runBlocking {
+        val browser = FakeBrowser()
+        val source = """
+            function main() {
+                page.goto("https://example.com/login", { waitUntil: "load", timeout: 15000 });
+                var typed = page.type("#user", "admin");
+                var clicked = page.click("#login-btn");
+                var waited = page.waitForSelector(".dashboard", 5000);
+                var content = page.content();
+                var shot = page.screenshot({ path: "/cache/shot.png", quality: 85 });
+                var url = page.url();
+                var title = page.title();
+                page.close();
+                return JSON.stringify({
+                    typed: typed.success, clicked: clicked.success, waited: waited,
+                    hasContent: content.length > 0, shotLen: shot.length,
+                    url: url, title: title
+                });
+            }
+        """.trimIndent()
+
+        val result = engine.execute(script(source), env(browser))
+
+        assertTrue("main failed: $result", result is ScriptResult.Success)
+        val json = (result as ScriptResult.Success).value
+        assertTrue("typed must succeed in $json", json.contains("\"typed\":true"))
+        assertTrue("clicked must succeed in $json", json.contains("\"clicked\":true"))
+        assertTrue("waited must be true in $json", json.contains("\"waited\":true"))
+        assertTrue("content must be rendered in $json", json.contains("\"hasContent\":true"))
+        assertTrue("screenshot must return a path in $json", json.contains("\"shotLen\":37"))
+        assertTrue("url missing in $json", json.contains("\"url\":\"https://example.com/login\""))
+        assertTrue("title missing in $json", json.contains("\"title\":\"Fake Title\""))
+
+        assertTrue("goto (open) call missing", browser.calls.contains("open:https://example.com/login:15000"))
+        assertTrue("close call missing", browser.calls.contains("close"))
+    }
+
+    @Test
+    fun `tahap29 scrollTo and scrollBottom forward to the native bridge`() = runBlocking {
+        val browser = FakeBrowser()
+        val source = """
+            function main() {
+                page.goto("https://example.com/feed", { waitUntil: "load", timeout: 15000 });
+                var s1 = page.scrollTo(0, 400);
+                var s2 = page.scrollBottom();
+                var s3 = page.locator("#more").scrollIntoView();
+                return JSON.stringify({ s1: s1, s2: s2, s3: s3 });
+            }
+        """.trimIndent()
+
+        val result = engine.execute(script(source), env(browser))
+
+        assertTrue("main failed: $result", result is ScriptResult.Success)
+        val json = (result as ScriptResult.Success).value
+        assertTrue("scrollTo must be true in $json", json.contains("\"s1\":true"))
+        assertTrue("scrollBottom must be true in $json", json.contains("\"s2\":true"))
+        assertTrue("scrollIntoView must be true in $json", json.contains("\"s3\":true"))
+        assertTrue("scrollTo:0:400 call missing", browser.calls.contains("scrollTo:0:400"))
+        assertTrue("scrollBottom call missing", browser.calls.contains("scrollBottom"))
+    }
+
+    @Test
+    fun `tahap29 global page object is only defined when a browser bridge is present`() = runBlocking {
+        val plainSource = "function main() { return typeof page; }"
+        val plainEnv = DefaultScriptEnvironment(
+            fetchImpl = { _, _, _, _ -> FetchResult(200, emptyMap(), "") },
+        )
+        val plain = engine.execute(script(plainSource), plainEnv)
+        assertEquals(ScriptResult.Success("undefined"), plain)
+
+        val withBrowser = engine.execute(script(plainSource), env(FakeBrowser()))
+        assertEquals(ScriptResult.Success("object"), withBrowser)
     }
 }

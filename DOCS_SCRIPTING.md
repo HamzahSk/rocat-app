@@ -28,6 +28,10 @@ Global yang tersedia di setiap skrip:
   `fetchJson(url, options)` (Tahap 22.1 — selalu tersedia, tak pernah crash).
 - `RoCatUI` — bridge UI Compose (hanya tersedia saat skrip dibuka di **Canvas**).
 - `RoCatDOM` — bridge parsing HTML berbasis Jsoup (pengganti Cheerio).
+- `RoCatPage` — bridge *headless WebView* tingkat rendah (Tahap 23; hanya aktif bila
+  mesin browser tersedia — lihat **Bab 7**).
+- `RoCatBrowser` / `page` — API *browserless* ala Puppeteer/Playwright (Tahap 25/29;
+  `page` = facade global praktis yang mengendalikan satu tab WebView tersembunyi).
 - `JSON`, `Math`, `String`, `encodeURIComponent`, dll. — standar JS.
 
 ---
@@ -766,6 +770,241 @@ function parseCards(html) {
 
 ---
 
+## 7. Browserless / Headless WebView API
+
+> **Tahap 29.** Banyak situs modern adalah SPA atau dilindungi anti-bot yang DOM-nya
+> baru ter-render oleh JavaScript — `fetch()` statis + `RoCatDOM` (Jsoup) tidak cukup.
+> Bab ini memperkenalkan API *browserless* yang mengendalikan sebuah **WebView
+> headless** (tersembunyi, tidak tampil di layar) milik aplikasi, dengan antarmuka yang
+> meniru **Puppeteer/Playwright**.
+
+### 7.1 Kapan Memakainya (Dual-Mode)
+
+| Mode | Alat | Kecepatan | Baterai | Cocok untuk |
+|------|------|-----------|---------|-------------|
+| **Statis** | `fetch()` + `RoCatDOM` | ⚡ sangat cepat | irit | HTML biasa yang di-render server |
+| **Interaktif** | `page.*` (WebView headless) | lambat | boros | SPA, login/form, anti-bot, *lazy-load* |
+
+> **Aturan praktis:** mulai dengan `fetch()` (murah); gunakan `page` **hanya bila**
+> DOM penting benar-benar tidak ada di HTML mentah. Kedua mode bisa dicampur dalam satu
+> skrip tanpa konflik — objek `page` hanya "hidup" jika Anda memanggilnya.
+
+### 7.2 Model Eksekusi (Sinkron, Anti-Crash)
+
+- Rhino 1.7.15 **tidak mendukung `async`/`await`** — semua panggilan `page.*` adalah
+  **sinkron dan memblokir** thread skrip sampai selesai (Kotlin memarkir thread Rhino
+  dengan `CountDownLatch`; thread UI Android **tidak pernah** diblokir).
+- Skrip tetap ditulis berurutan seperti biasa:
+  ```javascript
+  page.goto("https://contoh.site/login");
+  page.type("#user", "admin");
+  page.click("#btn");
+  ```
+- **Anti-crash:** setiap error di dalam bridge ditangkap Kotlin dan dilaporkan lewat
+  nilai kembali (`false` / `""`), **tidak pernah** melempar exception yang mematikan app.
+  Satu-satunya pengecualian: `page.waitForSelector` di sisi polyfill **bisa `throw`**
+  error JavaScript biasa saat *timeout* — bungkus dengan `try/catch` jika mau ditangani.
+- WebView hanya berjalan di *main thread* Android → seluruh komunikasi antar-thread
+  di-marshal lewat `Handler` + `CountDownLatch` di `HeadlessWebViewManager`.
+
+### 7.3 Objek Global `page`
+
+Objek **`page`** adalah facade global yang mengendalikan satu tab WebView tersembunyi.
+Ia otomatis menempel pada *singleton* `RoCatBrowser.getInstance()`, jadi `page` dan
+`RoCatBrowser` selalu berbagi WebView yang sama. `typeof page` = `"object"` hanya jika
+host menyediakan mesin browser (di Canvas selalu tersedia); skrip polos melihat
+`"undefined"`.
+
+| Metode | Deskripsi |
+|--------|-----------|
+| `page.goto(url, options?)` | Memuat `url` dan menunggu halaman selesai dimuat (Puppeteer-like). |
+| `page.waitForSelector(selector, timeout?)` | Menunggu elemen DOM dirender. `timeout` default 30 s. |
+| `page.waitForTimeout(ms)` | Jeda skrip `ms` milidetik (seperti `sleep`). |
+| `page.click(selector)` | Klik elemen pertama yang cocok (fallback `element.click()`). |
+| `page.type(selector, text, delay?)` | Mengetik `text` huruf demi huruf (default `delay` 50 ms). |
+| `page.fill(selector, text)` | Mengisi input sekaligus + event `input`/`change`/`blur`. |
+| `page.scrollTo(x, y)` | Menggulir ke koordinat absolut `(x, y)`. |
+| `page.scrollBottom()` | Menggulir ke dasar dokumen — memicu **lazy-load**/infinite scroll. |
+| `page.evaluate(fnOrJs, args?)` | Menjalankan JS di dalam halaman hidup; menerima fungsi + argumen. |
+| `page.content()` | Mengambil HTML penuh yang sudah di-render JS (`outerHTML`). |
+| `page.url()` | URL halaman saat ini. |
+| `page.title()` | Judul halaman saat ini. |
+| `page.screenshot(options?)` | Menangkap layar WebView → PNG; return path absolut file. |
+| `page.cookies()` | Array cookie halaman (sinkron dengan jar OkHttp). |
+| `page.setCookie(obj)` / `page.clearCookies()` | Atur / bersihkan cookie. |
+| `page.locator(selector)` | Objek *locator* (lihat §7.5). |
+| `page.goBack()` / `goForward()` / `reload()` / `stop()` | Navigasi riwayat / muat ulang / berhenti. |
+| `page.close()` | Melepas WebView tersembunyi & membebaskan memorinya. |
+
+**Contoh alur login + ambil DOM:**
+
+```javascript
+page.goto("https://contoh.site/login", { waitUntil: "load", timeout: 20000 });
+page.type("#user", "admin");
+page.type("#pass", "rahasia123");
+page.click("#submit");
+page.waitForSelector(".dashboard", 10000);
+
+var html = page.content();          // DOM penuh setelah login
+var doc  = RoCatDOM.parse(html);    // parse hasilnya dengan RoCatDOM
+var name = doc.textOf(".user-name");
+RoCatUI.addAlert("Masuk sebagai " + name, "success");
+```
+
+### 7.4 `page.goto(url, options)` — Detail
+
+| Opsi | Tipe | Default | Deskripsi |
+|------|------|---------|-----------|
+| `waitUntil` | `string` | — | `"load"`/`"complete"` → tunggu `document.readyState === "complete"`; `"domcontentloaded"`/`"interactive"` → tunggu `interactive`. |
+| `timeout` | `number` | `30000` | Batas waktu (ms). |
+
+Kembali: objek `page` itu sendiri (untuk *chaining*), atau melempar `Error` JS saat
+gagal membuka URL — bungkus dengan `try/catch` bila perlu:
+
+```javascript
+try {
+    page.goto("https://contoh.site/", { waitUntil: "domcontentloaded", timeout: 15000 });
+} catch (e) {
+    RoCatUI.addAlert("Gagal membuka halaman: " + e.message, "error");
+}
+```
+
+### 7.5 `page.locator(selector)` — Object Locator
+
+Untuk operasi berulang pada satu elemen:
+
+| Metode | Deskripsi |
+|--------|-----------|
+| `locator.exists()` | `boolean` — apakah elemen ada di DOM. |
+| `locator.click()` | Klik elemen (hasil `{ success, error? }`). |
+| `locator.fill(text)` | Isi input + event React/Vue-friendly (`{ success, error? }`). |
+| `locator.type(text, delay?)` | Ketik bertahap. |
+| `locator.text()` | `textContent` ter-trim dari elemen. |
+| `locator.getAttribute(name)` | Nilai atribut, atau `null`. |
+| `locator.waitFor(timeout?)` | Menunggu elemen; **melempar** `Error` saat timeout. |
+| `locator.all()` | Array `{ text, html, attributes }` semua match. |
+| `locator.clickAll()` | Klik semua match, hasil array `{ index, success, error? }`. |
+| `locator.scrollIntoView()` | Gulir elemen ke tengah viewport. |
+| `locator.getBoundingRect()` | Objek `{ x, y, width, height, top, … }` dari `getBoundingClientRect()`. |
+
+### 7.6 `page.evaluate` & Ekstraksi DOM
+
+`evaluate` menerima **fungsi** (paling aman, argumen di-serialisasi) atau **string JS**:
+
+```javascript
+// Fungsi + argumen → hasil native (objek/array/string/number).
+var info = page.evaluate(function () {
+    return {
+        title: document.title,
+        items: document.querySelectorAll(".card").length,
+        scrollY: window.scrollY
+    };
+});
+RoCatUI.addJsonLog(info, "Info halaman");
+
+// String JS → hasil di-parsing balik ke nilai JS.
+var ready = page.evaluate("document.readyState");
+```
+
+> Hasil `evaluate` selalu di-serialisasi JSON melalui WebView. `undefined`/`null`
+> dipetakan ke `null`. Skrip yang mengembalikan `DOM`/`HTMLElement` tak bisa
+> dikembalikan — ambil propertinya (mis. `el.outerHTML`) sebagai gantinya.
+
+### 7.7 `page.scrollBottom()` — Memicu Lazy-Load
+
+Situs *infinite scroll* (feed berita, galeri, hasil pencarian) baru merender konten
+saat viewport mendekati dasar. Pola umum: gulir ke bawah beberapa kali sambil menunggu
+elemen muncul:
+
+```javascript
+page.goto("https://contoh.site/feed", { waitUntil: "load", timeout: 20000 });
+var attempts = 0;
+while (attempts < 5 && !page.locator(".load-more").exists()) {
+    page.scrollBottom();
+    page.waitForTimeout(1200);
+    attempts++;
+}
+var doc = RoCatDOM.parse(page.content());
+var cards = doc.find(".card");
+RoCatUI.log("Ditemukan " + cards.length + " kartu setelah " + attempts + "x scroll.");
+```
+
+### 7.8 `page.screenshot(options)` — Tangkapan Layar
+
+| Opsi | Tipe | Default | Deskripsi |
+|------|------|---------|-----------|
+| `path` | `string` | `""` | Path absolut tujuan PNG. Kosong → file bertimestamp di cache app. |
+| `quality` | `number` | `80` | Kompresi PNG (0–100). |
+
+Return: **path absolut** file PNG, atau `""` saat gagal. WebView headless digambar ke
+`Bitmap` (viewport default `1366×768` bila belum pernah di-attach).
+
+```javascript
+var path = page.screenshot({ path: "/storage/emulated/0/Pictures/rocat_shot.png", quality: 90 });
+RoCatUI.log("Screenshot tersimpan: " + path);
+```
+
+### 7.9 Boilerplate — Gabungkan `page.goto` + `RoCatDOM.parse` + `RoCatUI.addImage`
+
+Contoh lengkap: buka halaman detail berbasis JS, ambil DOM hasil render, dan tampilkan
+cover serta sinopsis di Canvas:
+
+```javascript
+// ==UserScript==
+// @name         Browserless Detail (Contoh)
+// @version      1.0.0
+// @description  Gabungan page.goto + RoCatDOM.parse + RoCatUI.addImage.
+// @author       RoCat AI
+// @category     Contoh
+// @match        https://contoh.site/*
+// ==/UserScript==
+
+function onLaunch() {
+    RoCat.render([
+        { type: "clear" },
+        { type: "input", id: "url", hint: "URL detail (SPA)..." },
+        { type: "button", label: "Ambil", fn: "openInteractive" },
+        { type: "alert", message: "Mode browserless: halaman di-render WebView dulu.", level: "info" }
+    ]);
+}
+
+function openInteractive(inputs) {
+    try {
+        var url = (inputs && inputs.url || "").trim();
+        if (!url) { RoCatUI.addAlert("Masukkan URL.", "warning"); return; }
+
+        RoCatUI.addAlert("Membuka " + url + " ...", "info");
+        RoCatUI.log("⏳ Menunggu render JavaScript (WebView headless)...");
+
+        // 1) Buka di WebView tersembunyi dan tunggu DOM interaktif ter-render.
+        page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+        page.waitForSelector(".detail-box", 10000);
+
+        // 2) Ambil HTML penuh yang sudah dirender JS.
+        var html = page.content();
+
+        // 3) Parse dengan RoCatDOM (Jsoup) — hasil render WebView.
+        var doc = RoCatDOM.parse(html);
+        var cover = doc.attrOf(".cover img", "src") || "";
+        var title = doc.textOf(".entry-title") || "Tanpa judul";
+        var synopsis = doc.textOf(".sinopsis") || "";
+
+        // 4) Tampilkan hasil di Canvas.
+        RoCatUI.clear();
+        RoCatUI.addButton("← Ulangi", "onLaunch");
+        if (cover) RoCatUI.addImage(cover, title, true);   // kartu gambar + unduh
+        RoCatUI.addAlert(title, "success");
+        RoCatUI.addHtmlPreview(synopsis, "Sinopsis");
+    } catch (e) {
+        RoCatUI.addAlert("Gagal: " + e.message, "error");
+    }
+}
+```
+
+> Skrip lengkap demo yang bisa langsung diimpor: `test_browserless.js` di root repo.
+
+---
+
 ## Lampiran: Referensi Sumber Implementasi
 
 | Global | Sumber |
@@ -773,6 +1012,7 @@ function parseCards(html) {
 | `RoCatDOM` | `scripting/rhino/.../JsoupBridge.kt` |
 | `RoCatUI` | `scripting/api/.../ScriptUiBridge.kt` + `scripting/rhino/.../RhinoScriptEngine.kt` |
 | `RoCat` (render/safeParseJson/fetchJson) | `scripting/rhino/.../RoCatCoreWrapper.kt` (auto-inject) |
+| `RoCatPage` / `RoCatBrowser` / `page` | `scripting/api/.../ScriptBrowserBridge.kt` + `scripting/rhino/.../RoCatPageBridge.kt` + `RoCatBrowserWrapper.kt` + `app/.../scripting/HeadlessWebViewManager.kt` |
 | `fetch` | `scripting/api/.../network/ScriptFetch.kt` + `BridgeFetch` (Rhino) |
 | Canvas / lifecycle | `app/.../ui/canvas/ScriptCanvasViewModel.kt` (entry `onLaunch`) |
 | Template cards (JSON/HTML/Audio/Alert/Badge) | `app/.../ui/components/JsonLogCard.kt`, `HtmlPreviewCard.kt`, `AudioPreviewCard.kt`, `AlertBannerCard.kt`, `BadgeGroupCard.kt` |

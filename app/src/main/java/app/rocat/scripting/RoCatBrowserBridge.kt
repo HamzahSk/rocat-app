@@ -78,6 +78,14 @@ class RoCatBrowserBridge(private val manager: HeadlessWebViewManager) : ScriptBr
     override fun screenshot(path: String, quality: Int): String =
         runCatching { manager.screenshot(path, quality) }.getOrDefault("")
 
+    // --- Tahap 29: scrolling (Puppeteer-like) ---
+
+    override fun scrollTo(x: Int, y: Int): Boolean =
+        runCatching { manager.scrollTo(x, y) }.getOrDefault(false)
+
+    override fun scrollBottom(): Boolean =
+        runCatching { manager.scrollBottom() }.getOrDefault(false)
+
     override fun getCookies(): String =
         runCatching { manager.getCookies() }.getOrDefault("[]")
 

@@ -28,6 +28,7 @@ import org.mozilla.javascript.json.JsonParser
  *  - `RoCatPage.goBack()` / `goForward()` / `reload()` / `stop()` -> navigation
  *  - `RoCatPage.screenshot(path, quality)`                   -> PNG capture, returns file path
  *  - `RoCatPage.getCookies()` / `setCookie(json)` / `clearCookies()` -> cookie sync
+ *  - `RoCatPage.scrollTo(x, y)` / `scrollBottom()`                    -> scrolling (Tahap 29)
  *
  * Every call is delegated to the [ScriptBrowserBridge] supplied by the host app. The
  * engine executes scripts on a background thread, so the bridge blocks that thread until
@@ -76,6 +77,11 @@ internal class RoCatPageBridge(
         put("screenshot", this, PageFn { args ->
             browser.screenshot(pageArgString(args, 0), pageArgInt(args, 1, 80))
         })
+        // Tahap 29: scroll commands (scrollBottom triggers lazy-load / infinite scroll).
+        put("scrollTo", this, PageFn { args ->
+            browser.scrollTo(pageArgInt(args, 0, 0), pageArgInt(args, 1, 0))
+        })
+        put("scrollBottom", this, PageFn { browser.scrollBottom() })
         put("getCookies", this, PageFn { browser.getCookies() })
         put("setCookie", this, PageFn { args ->
             browser.setCookie(pageArgString(args, 0))

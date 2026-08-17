@@ -272,6 +272,28 @@ class HeadlessWebViewManager(private val appContext: Context) {
         }
     }
 
+    // =====================================================================
+    // Tahap 29 — Scrolling (Puppeteer-like): scrollTo / scrollBottom
+    // =====================================================================
+
+    /** Scrolls the live page to the absolute viewport coordinates `(x, y)`. */
+    fun scrollTo(x: Int, y: Int): Boolean {
+        val js = "window.scrollTo($x, $y); true"
+        return evaluateJs(js, DEFAULT_EVAL_TIMEOUT_MS) == "true"
+    }
+
+    /** Scrolls the live page to the bottom, triggering lazy-load / infinite scroll. */
+    fun scrollBottom(): Boolean {
+        val js = """
+            (function() {
+                var max = document.documentElement.scrollHeight - window.innerHeight;
+                if (max > 0) { window.scrollTo(0, max); } else { window.scrollTo(0, document.body.scrollHeight); }
+                return true;
+            })()
+        """.trimIndent()
+        return evaluateJs(js, DEFAULT_EVAL_TIMEOUT_MS) == "true"
+    }
+
     /** Cookies of the current page as a JSON array string, synced with OkHttp's jar. */
     fun getCookies(): String {
         val pageUrl = url()
