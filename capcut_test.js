@@ -10,7 +10,7 @@
 // ==/UserScript==
 
 var CAPCUT_URL = "https://www.capcut.com/id-id/signup";
-var EMAIL_TEXT = "Lanjutkan dengan alamat email";
+var EMAIL_TEXT = "lanjutkan dengan alamat email";
 
 function onLaunch() {
     RoCat.render([

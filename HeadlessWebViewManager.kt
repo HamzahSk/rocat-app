@@ -59,14 +59,6 @@ class HeadlessWebViewManager(private val appContext: Context) {
                 WebViewUtil.setDefaultSettings(wv)
                 wv.setBackgroundColor(Color.TRANSPARENT)
                 wv.webViewClient = WebViewClient()
-                
-                // Layout WebView dengan ukuran default agar koordinat valid
-                wv.measure(
-                    View.MeasureSpec.makeMeasureSpec(DEFAULT_VIEWPORT_WIDTH, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(DEFAULT_VIEWPORT_HEIGHT, View.MeasureSpec.EXACTLY)
-                )
-                wv.layout(0, 0, wv.measuredWidth, wv.measuredHeight)
-                
                 webView = wv
                 ref.set(wv)
             } catch (_: Throwable) {
@@ -136,27 +128,13 @@ class HeadlessWebViewManager(private val appContext: Context) {
      */
     fun click(selector: String): Boolean {
         val wv = webView ?: ensureWebView() ?: return false
-        
-        // Pastikan WebView memiliki ukuran yang valid
         measureIfNeeded(wv)
-        
-        // Coba dapatkan bounds elemen
         val bounds = elementBounds(wv, selector)
         if (bounds != null) {
-            // Klik di tengah elemen
             val cx = (bounds[0] + bounds[2] / 2f).toInt()
             val cy = (bounds[1] + bounds[3] / 2f).toInt()
-            
-            // Coba native touch
             if (dispatchNativeTap(wv, cx, cy)) return true
-            
-            // Coba dengan koordinat relatif terhadap viewport
-            val viewportX = (bounds[4] + bounds[2] / 2f).toInt()
-            val viewportY = (bounds[5] + bounds[3] / 2f).toInt()
-            if (dispatchNativeTap(wv, viewportX, viewportY)) return true
         }
-        
-        // Fallback ke JS click
         return clickViaJs(selector)
     }
 
@@ -188,48 +166,22 @@ class HeadlessWebViewManager(private val appContext: Context) {
     }
 
     /**
-     * Returns the live bounding box of [selector] as:
-     * `[left, top, width, height, viewportLeft, viewportTop]`,
-     * after scrolling the element into the viewport center.
-     * `null` when the element does not exist or has no renderable size.
+     * Returns the live bounding box of [selector] as `[left, top, width, height]`,
+     * after scrolling the element into the viewport center. `null` when the element
+     * does not exist or has no renderable size (hidden, `display:none`, detached).
      */
-    private fun elementBounds(selector: String): FloatArray? {
-        val wv = webView ?: ensureWebView() ?: return null
-        
+    private fun elementBounds(wv: WebView, selector: String): FloatArray? {
         val js = """
             (function() {
-                try {
-                    var el = document.querySelector(${jsQuote(selector)});
-                    if (!el) return null;
-                    
-                    // Scroll ke viewport agar terlihat
-                    try {
-                        el.scrollIntoView({ block: 'center', inline: 'center' });
-                    } catch (e) {
-                        try { el.scrollIntoView(); } catch (e2) {}
-                    }
-                    
-                    var r = el.getBoundingClientRect();
-                    if (!r || r.width <= 0 || r.height <= 0) return null;
-                    
-                    // Dapatkan scroll offset
-                    var scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
-                    var scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
-                    
-                    return [
-                        r.left + scrollX,   // absolute left
-                        r.top + scrollY,    // absolute top
-                        r.width,
-                        r.height,
-                        r.left,             // viewport left
-                        r.top               // viewport top
-                    ];
-                } catch(e) {
-                    return null;
-                }
+                var el = document.querySelector(${jsQuote(selector)});
+                if (!el) return null;
+                try { el.scrollIntoView({ block: 'center', inline: 'center' }); }
+                catch (e) { try { el.scrollIntoView(); } catch (e2) {} }
+                var r = el.getBoundingClientRect();
+                if (!r || r.width <= 0 || r.height <= 0) return null;
+                return [r.left, r.top, r.width, r.height];
             })()
         """.trimIndent()
-        
         val raw = evaluateJs(js, DEFAULT_EVAL_TIMEOUT_MS) ?: return null
         val trimmed = raw.trim()
         if (trimmed.isEmpty() || trimmed == "null" || trimmed == "undefined") return null
@@ -240,8 +192,6 @@ class HeadlessWebViewManager(private val appContext: Context) {
                 arr.getDouble(1).toFloat(),
                 arr.getDouble(2).toFloat(),
                 arr.getDouble(3).toFloat(),
-                arr.getDouble(4).toFloat(),
-                arr.getDouble(5).toFloat(),
             )
         } catch (_: Exception) {
             null
@@ -255,23 +205,15 @@ class HeadlessWebViewManager(private val appContext: Context) {
      * of the synthetic (untrusted) DOM events a JS `el.click()` produces.
      */
     private fun dispatchNativeTap(wv: WebView, x: Int, y: Int): Boolean {
-        // Pastikan koordinat valid
-        if (x < 0 || y < 0 || x > wv.width || y > wv.height) {
-            return false
-        }
-        
         val downTime = SystemClock.uptimeMillis()
 
-        // ACTION_DOWN
         val downLatch = CountDownLatch(1)
         val downRef = AtomicReference(false)
         onMain {
             try {
                 val down = MotionEvent.obtain(
-                    downTime, downTime, MotionEvent.ACTION_DOWN, x.toFloat(), y.toFloat(), 0
-                ).apply { 
-                    source = InputDevice.SOURCE_TOUCHSCREEN
-                }
+                    downTime, downTime, MotionEvent.ACTION_DOWN, x.toFloat(), y.toFloat(), 0,
+                ).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
                 val handled = wv.dispatchTouchEvent(down)
                 down.recycle()
                 downRef.set(handled)
@@ -282,9 +224,9 @@ class HeadlessWebViewManager(private val appContext: Context) {
             }
         }
         if (!awaitLatch(downLatch)) return false
-        if (!downRef.get()) return false
 
-        // Realistic gap between finger-down and finger-up
+        // A realistic tap has a few ms between finger-down and finger-up; this also
+        // lets the page start its press/ripple handling before the release arrives.
         try {
             Thread.sleep(TAP_GAP_MS)
         } catch (_: InterruptedException) {
@@ -292,16 +234,13 @@ class HeadlessWebViewManager(private val appContext: Context) {
             return false
         }
 
-        // ACTION_UP
         val upLatch = CountDownLatch(1)
         val upRef = AtomicReference(false)
         onMain {
             try {
                 val up = MotionEvent.obtain(
-                    downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x.toFloat(), y.toFloat(), 0
-                ).apply { 
-                    source = InputDevice.SOURCE_TOUCHSCREEN
-                }
+                    downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x.toFloat(), y.toFloat(), 0,
+                ).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
                 val handled = wv.dispatchTouchEvent(up)
                 up.recycle()
                 upRef.set(handled)
@@ -327,26 +266,19 @@ class HeadlessWebViewManager(private val appContext: Context) {
     private fun clickViaJs(selector: String): Boolean {
         val js = """
             (function() {
+                var el = document.querySelector(${jsQuote(selector)});
+                if (!el) return false;
+                var opts = { bubbles: true, cancelable: true, view: window };
                 try {
-                    var el = document.querySelector(${jsQuote(selector)});
-                    if (!el) return false;
-                    
-                    // Coba berbagai metode klik
-                    try { el.click(); return true; } catch(e) {}
-                    
-                    // Dispatch event sequence
-                    var opts = { bubbles: true, cancelable: true, view: window };
-                    try {
-                        el.dispatchEvent(new MouseEvent('pointerdown', opts));
-                        el.dispatchEvent(new MouseEvent('pointerup', opts));
-                        el.dispatchEvent(new MouseEvent('click', opts));
-                        return true;
-                    } catch(e) {}
-                    
-                    return false;
-                } catch(e) {
-                    return false;
+                    el.dispatchEvent(new MouseEvent('pointerdown', opts));
+                    el.dispatchEvent(new MouseEvent('mousedown', opts));
+                    el.dispatchEvent(new MouseEvent('pointerup', opts));
+                    el.dispatchEvent(new MouseEvent('mouseup', opts));
+                    el.dispatchEvent(new MouseEvent('click', opts));
+                } catch (e) {
+                    el.click();
                 }
+                return true;
             })()
         """.trimIndent()
         return evaluateJs(js, DEFAULT_EVAL_TIMEOUT_MS) == "true"
