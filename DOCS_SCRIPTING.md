@@ -824,11 +824,24 @@ mengabaikan klik sintetis dari JavaScript. Penyebabnya:
 Solusinya, `page.click(selector)` di `HeadlessWebViewManager` sekarang melakukan
 **tap native**:
 
-1. WebView di-*layout* ke viewport default (sama seperti screenshot).
-2. Elemen dicari via `getBoundingClientRect` dan digulir ke tengah viewport.
-3. Pasangan `MotionEvent` **`ACTION_DOWN` → `ACTION_UP`** dikirim lewat
-   `WebView.dispatchTouchEvent` di koordinat pusat elemen (sumber `TOUCHSCREEN`).
-4. Halaman melihat rangkaian event *trusted* yang sah: `touchstart/touchend →
+1. WebView di-*layout* ke viewport default 1366×768 (sama seperti screenshot) dan
+   dipaksa *render* satu frame agar renderer memakai ukuran baru.
+2. WebView headless di-set menjadi **aktif**: *enabled, focusable, clickable*,
+   `requestFocus` + `onWindowFocusChanged(true)` — karena view yang tidak pernah
+   di-attach ke window tidak punya fokus/window-focus, sebagian jalur input internal
+   bisa menolak event sintetis.
+3. Elemen dicari via `getBoundingClientRect` + `scrollIntoView({block:'center'})`, dan
+   `window.innerWidth/Height` dipoll sampai stabil (renderer menyerap ukuran viewport
+   baru) untuk menghitung **rasio CSS-px → view-px**:
+   `scaleX = viewWidth / window.innerWidth`, `scaleY = viewHeight / window.innerHeight`.
+   **Penting:** `getBoundingClientRect` mengembalikan **CSS pixel**, sedangkan
+   `MotionEvent` memakai **pixel layar WebView** — tanpa konversi ini tap meleset di
+   setiap halaman yang density/`device-width`-nya ≠ 1:1 (mis. `device-width` pada
+   layar hi-dpi, atau halaman tanpa viewport meta yang default 980px).
+4. Pasangan `MotionEvent` **`ACTION_DOWN` → jeda ~80ms → `ACTION_UP`** dikirim lewat
+   `WebView.dispatchTouchEvent` di pusat elemen (sumber `TOUCHSCREEN`), setelah jeda
+   *settle* ~120ms agar layout/scroll async dari `scrollIntoView` selesai.
+5. Halaman melihat rangkaian event *trusted* yang sah: `touchstart/touchend →
    pointerdown/pointerup → mousedown/mouseup → click`.
 
 Bila elemen tidak ditemukan atau tap ditolak, fallback JS (urutan

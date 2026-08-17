@@ -13,16 +13,18 @@ import org.junit.Test
 import java.io.File
 
 /**
- * Tahap 30 — verifies the rewritten `capcut_test.js` (v4). The script no longer clicks
- * through a convoluted `page.evaluate` chain calling `el.click()` (untrusted, ignored
- * by SPA/anti-bot pages). Instead it tags the target element with `data-rocat-click`
- * and calls the built-in `page.click(selector)` which, on the app side, dispatches a
- * **native touch tap** (MotionEvent ACTION_DOWN/ACTION_UP) through the WebView.
+ * Tahap 30 (v2) — verifies the rewritten `capcut_test.js` (v9). The script no longer
+ * clicks through a convoluted `page.evaluate` chain calling `el.click()` (untrusted,
+ * ignored by SPA/anti-bot pages). Instead it finds the button by its visible text,
+ * tags it with `data-rocat-click="1"` and calls the built-in `page.click(selector)`
+ * which, on the app side, dispatches a **native touch tap** (MotionEvent
+ * ACTION_DOWN/ACTION_UP) through the WebView at the element's on-screen center
+ * (CSS-pixel → view-pixel scaled).
  *
  * The test proves:
  *  1. `onLaunch()` renders the action buttons without touching the browser.
- *  2. `clickContinueEmail()` runs the full flow synchronously (Rhino has no
- *     async/await) and the click is forwarded to the native bridge
+ *  2. `createAccount()` runs the full flow synchronously (Rhino has no async/await)
+ *     and the clicks are forwarded to the native bridge
  *     (`click:[data-rocat-click="1"]`) instead of an evaluate-based synthetic click.
  *  3. The fallback static `fetch()` path is untouched.
  */
@@ -97,10 +99,19 @@ class CapCutNativeClickTest {
         }
 
         override fun evaluate(script: String): String = when {
-            // The marker script tags the target element with data-rocat-click.
+            // findAndTagButton tags the target element with data-rocat-click.
             script.contains("data-rocat-click") -> {
                 calls += "eval"
-                """{"tagged":true,"tag":"BUTTON","className":"lv-account-login-form-main-field-xx","index":0}"""
+                """{"success":true,"text":"Continue with email","tag":"BUTTON"}"""
+            }
+            // Email-form visibility probe (offsetParent) → form appeared.
+            script.contains("offsetParent") -> {
+                calls += "eval"
+                """{"email_inputs":1,"hasEmailInput":true}"""
+            }
+            script.contains("otp") -> {
+                calls += "eval"
+                """{"hasOTP":false}"""
             }
             script.contains("querySelector") -> {
                 calls += "eval"
@@ -177,33 +188,33 @@ class CapCutNativeClickTest {
         )
         assertTrue("onLaunch failed: $result", result is ScriptResult.Success)
         assertTrue("expected clear", ui.calls.any { it == "clear" })
-        assertTrue("expected action button", ui.calls.any { it.contains("clickContinueEmail") })
+        assertTrue("expected action button", ui.calls.any { it.contains("createAccount") })
         assertTrue("browser must not be touched by onLaunch", browser.calls.isEmpty())
     }
 
     @Test
-    fun `clickContinueEmail clicks via native page click bridge`() = runBlocking {
+    fun `createAccount drives the full native-touch flow synchronously`() = runBlocking {
         val ui = UiRecorder()
         val browser = FakeBrowser()
         val engine = RhinoScriptEngine(OkHttpClient.Builder().build())
         val result = engine.invokeNamedFunction(
             script(),
             env(ui, browser),
-            "clickContinueEmail",
+            "createAccount",
             emptyMap(),
         )
 
-        assertTrue("clickContinueEmail failed: $result", result is ScriptResult.Success)
+        assertTrue("createAccount failed: $result", result is ScriptResult.Success)
 
-        assertTrue("expected goto (open)", browser.calls.any { it.startsWith("open:https://www.capcut.com/id-id/signup") })
-        // page.waitForSelector polls via evaluate (locator.exists → querySelector probe);
-        // the marker evaluate that tags the target element must also have run.
+        assertTrue("expected goto (open)", browser.calls.any { it.startsWith("open:https://www.capcut.com/signup") })
+        // The marker evaluate that tags the target element with data-rocat-click ran,
+        // and the page.evaluate selector probes polled the live DOM.
         assertTrue("expected evaluate-based selector probes", browser.calls.any { it == "eval" })
-        // The click MUST go to the native bridge (page.click) — not an evaluate chain.
+        // The clicks MUST go to the native bridge (page.click) — not an evaluate chain.
         assertTrue("expected native bridge click", browser.calls.contains("click:[data-rocat-click=\"1\"]"))
         assertTrue("expected screenshot", browser.calls.any { it.startsWith("screenshot:") })
 
-        // The script parsed the rendered HTML with RoCatDOM and found the email form.
+        // The script verified the email form appeared and reported the field counts.
         val jsonLog = ui.calls.firstOrNull { it.startsWith("jsonlog:📊 Detail") } ?: ""
         assertTrue("expected berhasil_tap true in $jsonLog", jsonLog.contains("\"berhasil_tap\":true"))
         assertTrue("expected email_inputs in $jsonLog", jsonLog.contains("\"email_inputs\":1"))

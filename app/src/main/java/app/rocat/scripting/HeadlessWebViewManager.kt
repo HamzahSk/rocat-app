@@ -23,6 +23,7 @@ import java.io.FileOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.roundToInt
 
 /**
  * Manages a single **headless** [WebView] (Tahap 23: dual-mode scraping engine) that
@@ -122,6 +123,10 @@ class HeadlessWebViewManager(private val appContext: Context) {
      * The WebView is first laid out to the default viewport (same as [screenshot]) so
      * the element's `getBoundingClientRect` coordinates map onto a real coordinate
      * space, and the element is scrolled into view when it sits outside the viewport.
+     * DOM coordinates are **CSS pixels** while a [MotionEvent] lives in the view's
+     * physical-pixel space, so the bounding box center is multiplied by the live
+     * layout-viewport ratio (`viewWidth / window.innerWidth`) before dispatch —
+     * without it a tap misses on any page whose density / viewport differs from 1:1.
      * When the element cannot be located (or the native dispatch is rejected) the
      * previous JS event-sequence fallback is used, so the method never crashes and
      * never reports a false negative.
@@ -129,10 +134,12 @@ class HeadlessWebViewManager(private val appContext: Context) {
     fun click(selector: String): Boolean {
         val wv = webView ?: ensureWebView() ?: return false
         measureIfNeeded(wv)
+        prepareForInteraction(wv)
+        val scale = viewportScale(wv) ?: return clickViaJs(selector)
         val bounds = elementBounds(wv, selector)
         if (bounds != null) {
-            val cx = (bounds[0] + bounds[2] / 2f).toInt()
-            val cy = (bounds[1] + bounds[3] / 2f).toInt()
+            val cx = ((bounds[0] + bounds[2] / 2f) * scale[0]).roundToInt()
+            val cy = ((bounds[1] + bounds[3] / 2f) * scale[1]).roundToInt()
             if (dispatchNativeTap(wv, cx, cy)) return true
         }
         return clickViaJs(selector)
@@ -153,6 +160,17 @@ class HeadlessWebViewManager(private val appContext: Context) {
                     View.MeasureSpec.makeMeasureSpec(DEFAULT_VIEWPORT_HEIGHT, View.MeasureSpec.EXACTLY),
                 )
                 wv.layout(0, 0, wv.measuredWidth, wv.measuredHeight)
+                // Kick the compositor: a detached WebView has no window/choreographer to
+                // schedule frames on its own, so force one real frame here (same trick as
+                // screenshot()). This makes the renderer apply the fresh 1366×768 size and
+                // produce up-to-date hit-test geometry before any touch is dispatched.
+                try {
+                    val scratch = Bitmap.createBitmap(wv.width, wv.height, Bitmap.Config.ARGB_8888)
+                    wv.draw(Canvas(scratch))
+                    scratch.recycle()
+                } catch (_: Throwable) {
+                    // Best-effort; the viewport-scale poll in viewportScale() still settles.
+                }
             } catch (_: Throwable) {
                 // Layout is best-effort; touch fallback still applies below.
             }
@@ -162,6 +180,94 @@ class HeadlessWebViewManager(private val appContext: Context) {
             latch.await(1, TimeUnit.SECONDS)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
+        }
+    }
+
+    /**
+     * Gives the (never-attached) WebView a real "active view" state. A detached WebView
+     * has no window / attach info, so Android treats it as non-focusable and without
+     * window focus; some WebView input paths (focus steering, touch-mode handling,
+     * selection) behave differently for such views and can swallow or reject a synthetic
+     * [MotionEvent]. We explicitly enable, focus and "window-focus" the view before a tap.
+     * Every step is best-effort and wrapped — a headless edge case must never crash.
+     */
+    private fun prepareForInteraction(wv: WebView) {
+        val latch = CountDownLatch(1)
+        onMain {
+            try {
+                if (!wv.isEnabled) wv.isEnabled = true
+                wv.isFocusable = true
+                wv.isFocusableInTouchMode = true
+                wv.isClickable = true
+                wv.setLongClickable(false)
+                wv.onWindowFocusChanged(true)
+                wv.requestFocus(View.FOCUS_DOWN)
+                wv.requestFocusFromTouch()
+            } catch (_: Throwable) {
+                // Best-effort focus hints — native dispatch still applies below.
+            } finally {
+                latch.countDown()
+            }
+        }
+        try {
+            latch.await(DEFAULT_EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    /**
+     * Returns the CSS-pixel → view-pixel scale factors `[scaleX, scaleY]` for the live
+     * layout viewport, or `null` when the page reports no viewport yet.
+     *
+     * `getBoundingClientRect()` / `window.innerWidth` are **CSS pixels**, but a
+     * [MotionEvent] dispatched to the WebView is in the view's own coordinate space
+     * (physical pixels). The WebView maps its layout viewport onto its measured box, so
+     * the conversion is exactly `viewWidth / window.innerWidth` (and likewise height).
+     * Tahap 30 v1 ignored this ratio and tapped raw CSS coordinates — that only lands on
+     * the element when the viewport happens to be 1:1, and misses on every hi-dpi
+     * device (`device-width` < view px), pages without a viewport meta (980px default)
+     * or any page that zooms. This also polls `window.innerWidth` until it stabilises so
+     * the scale is computed after the renderer picks up the freshly-measured viewport
+     * size, not from a stale one.
+     */
+    private fun viewportScale(wv: WebView): FloatArray? {
+        var innerW = 0f
+        var innerH = 0f
+        for (attempt in 0 until VIEWPORT_SETTLE_TRIES) {
+            val raw = evaluateJs(
+                "JSON.stringify([window.innerWidth || 0, window.innerHeight || 0])",
+                DEFAULT_EVAL_TIMEOUT_MS,
+            )
+            val dims = parseFloatArray(raw)
+            if (dims != null && dims[0] > 0f && dims[1] > 0f) {
+                if (innerW > 0f && dims[0] == innerW && dims[1] == innerH) {
+                    innerW = dims[0]
+                    innerH = dims[1]
+                    break
+                }
+                innerW = dims[0]
+                innerH = dims[1]
+            }
+            if (attempt < VIEWPORT_SETTLE_TRIES - 1) sleep(POLL_INTERVAL_MS)
+        }
+        if (innerW <= 0f || innerH <= 0f) return null
+        return floatArrayOf(
+            (wv.width.toFloat() / innerW).coerceIn(MIN_TAP_SCALE, MAX_TAP_SCALE),
+            (wv.height.toFloat() / innerH).coerceIn(MIN_TAP_SCALE, MAX_TAP_SCALE),
+        )
+    }
+
+    /** Parses a JSON float array string (`[a, b, c, ...]`) or null on any failure. */
+    private fun parseFloatArray(raw: String?): FloatArray? {
+        if (raw == null) return null
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || trimmed == "null" || trimmed == "undefined") return null
+        return try {
+            val arr = JSONArray(trimmed)
+            FloatArray(arr.length()) { i -> arr.getDouble(i).toFloat() }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -205,6 +311,17 @@ class HeadlessWebViewManager(private val appContext: Context) {
      * of the synthetic (untrusted) DOM events a JS `el.click()` produces.
      */
     private fun dispatchNativeTap(wv: WebView, x: Int, y: Int): Boolean {
+        // Let the page settle any async layout/scroll triggered by the preceding
+        // scrollIntoView + viewport resize before the finger goes down, so the
+        // renderer's hit-test sees the same geometry getBoundingClientRect reported.
+        // This sleep is on the script thread only — the main/UI thread stays free.
+        try {
+            Thread.sleep(TAP_SETTLE_MS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return false
+        }
+
         val downTime = SystemClock.uptimeMillis()
 
         val downLatch = CountDownLatch(1)
@@ -572,7 +689,11 @@ class HeadlessWebViewManager(private val appContext: Context) {
         const val SCREENSHOT_DIR = "browser_screenshots"
         const val DEFAULT_VIEWPORT_WIDTH = 1366
         const val DEFAULT_VIEWPORT_HEIGHT = 768
-        const val TAP_GAP_MS = 60L
+        const val TAP_GAP_MS = 80L
+        const val TAP_SETTLE_MS = 120L
+        const val VIEWPORT_SETTLE_TRIES = 3
+        const val MIN_TAP_SCALE = 0.1f
+        const val MAX_TAP_SCALE = 10f
     }
 }
 
