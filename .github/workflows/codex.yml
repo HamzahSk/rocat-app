@@ -55,8 +55,8 @@ jobs:
             exit 1
           fi
 
-          # PENTING: Flag ditaruh SEBELUM kata 'exec'
-          codex -a never --dangerously-bypass-approvals-and-sandbox exec "$(cat prompt.md)" 2>&1 | tee ai-response-recap.txt || true
+          # Cukup pakai 1 flag pamungkas ini aja sebelum 'exec'
+          codex --dangerously-bypass-approvals-and-sandbox exec "$(cat prompt.md)" 2>&1 | tee ai-response-recap.txt || true
 
       - name: Collect changed files and AI recap
         run: |
