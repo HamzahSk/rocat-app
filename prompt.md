@@ -20,3 +20,4 @@ Tolong lakukan investigasi dan selesaikan tugas-tugas berikut:
  * **Dukungan Ganda:** Skrip lama yang menggunakan fungsi UI dasar harus tetap bekerja 100% normal (tetap *backward-compatible*).
  * **Anti-Crash:** Setiap *error/throw* saat memproses UI atau mengunduh file harus ditangkap oleh Kotlin (blok try-catch) dan diberikan Toast atau *Log* UI, bukan membuat aplikasi *force close*.
 Silakan langsung di-copas ke *coding assistant* kamu! Untuk template baru, apakah ada komponen spesifik lain yang ingin kamu tambahkan tombol *copy*-nya (misalnya khusus untuk *Alert Banner* atau *Badge*), atau cukup untuk hasil keluaran teks dan JSON saja?
+ 

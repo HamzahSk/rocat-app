@@ -50,15 +50,15 @@ jobs:
 
       - name: Run Codex
         run: |
-          # Pastikan file prompt.md ada biar nggak error 'No such file'
           if [ ! -f prompt.md ]; then
             echo "Error: prompt.md tidak ditemukan!"
             exit 1
           fi
 
-          # Gunakan 'exec' untuk mode non-interaktif
-          # Gunakan --approve-for-me (atau -a never) agar agent langsung mengeksekusi perbaikan tanpa nunggu konfirmasi Y/N
-          codex exec --approve-for-me "$(cat prompt.md)" 2>&1 | tee ai-response-recap.txt || true
+          # Gunakan kombinasi maut untuk CI/CD:
+          # -a never : Jangan pernah minta approval
+          # --dangerously-bypass-approvals-and-sandbox : Matikan sandbox bubblewrap dan auto-review AI
+          codex exec -a never --dangerously-bypass-approvals-and-sandbox "$(cat prompt.md)" 2>&1 | tee ai-response-recap.txt || true
 
       - name: Collect changed files and AI recap
         run: |
