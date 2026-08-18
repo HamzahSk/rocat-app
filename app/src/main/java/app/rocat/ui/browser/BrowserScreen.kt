@@ -1,11 +1,15 @@
 package app.rocat.ui.browser
 
+import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
@@ -86,7 +90,13 @@ import app.rocat.i18n.StringKey
 import app.rocat.i18n.stringResource
 
 /** Logcat tag for JavaScript console messages piped from the page (Tahap 26.4). */
-private const val TAG_JS = "WebViewJS"
+private const val TAG_JS = "WebViewJS-Console"
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 /**
  * Tahap 25: the modern in-app browser tab. A free address bar accepts ANY URL (or a
@@ -106,6 +116,8 @@ private const val TAG_JS = "WebViewJS"
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserScreen(initialUrl: String? = null) {
+    // Required for diagnosing SPA hydration/rendering failures through Chrome DevTools.
+    WebView.setWebContentsDebuggingEnabled(true)
     val viewModel: BrowserViewModel = viewModel(factory = AppViewModelFactory)
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -238,7 +250,7 @@ fun BrowserScreen(initialUrl: String? = null) {
             override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
                 if (message == null) return false
                 val detail =
-                    "${message.sourceId()}:${message.lineNumber()}: ${message.message()}"
+                    "level=${message.messageLevel()} ${message.sourceId()}:${message.lineNumber()}: ${message.message()}"
                 when (message.messageLevel()) {
                     ConsoleMessage.MessageLevel.ERROR -> Log.e(TAG_JS, detail)
                     ConsoleMessage.MessageLevel.WARNING -> Log.w(TAG_JS, detail)
@@ -408,7 +420,17 @@ fun BrowserScreen(initialUrl: String? = null) {
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
-                            WebView(ctx).also { view ->
+                            // AndroidView normally supplies the Activity context. Keep that
+                            // guarantee explicit so WebView is never backed by Application.
+                            val activityContext = ctx.findActivity() ?: context.findActivity()
+                            checkNotNull(activityContext) {
+                                "Browser WebView requires an Activity context"
+                            }
+                            WebView(activityContext).also { view ->
+                                view.layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                )
                                 // Tahap 32: use the installed WebView's native mobile UA,
                                 // matching sweb-master and avoiding a synthetic Chrome
                                 // version that can trip anti-bot UA consistency checks.

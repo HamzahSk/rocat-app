@@ -92,3 +92,12 @@ Proyek: `rocat-app` — Android app modular ala Mihon untuk mengelola & menjalan
 - `ScriptEngine.invokeFunction()` (Tahap 8): evaluasi source → panggil fungsi bernama (`search`/`detail`) → hasil `NativeJSON.stringify`. Dipakai Playground "Test Execution" (Run Search/Run Detail).
 - Watchdog: `ScriptContextFactory` + instruction budget 10M; timeout network di `NetworkHelper.newScriptClient()`.
 - Parser metadata: blok `==UserScript==` atau fallback `// @tag`; tag `@name/@version/@description/@author/@match/@include/@icon(/iconURL)`.
+- Tahap 32.2 (2026-08-18): isolasi rendering WebView. `BrowserScreen` tidak memiliki
+  `shouldInterceptRequest` dan tidak memasang OkHttp/interceptor custom pada WebView;
+  jalur resource dibiarkan native Chromium. `AndroidView` dan instance WebView kini
+  memakai `MATCH_PARENT` eksplisit, WebView dibuat dengan Activity context, dan manifest
+  mengaktifkan `android:hardwareAccelerated="true"`. `WebView.setWebContentsDebuggingEnabled(true)`
+  aktif statis; `WebChromeClient.onConsoleMessage` mencatat level, source, baris, dan pesan
+  ke Logcat tag `WebViewJS-Console`. Log console aktual belum dapat dikumpulkan tanpa
+  menjalankan APK pada emulator/device; gunakan `adb logcat -s WebViewJS-Console` untuk
+  membedakan React hydration/CSP error dari kegagalan renderer/layout.
