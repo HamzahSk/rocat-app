@@ -50,9 +50,15 @@ jobs:
 
       - name: Run Codex
         run: |
-          # Menggunakan 'script' untuk membuat fake TTY (pseudo-terminal)
-          # Flag -q (quiet), -e (return exit code), -c (command)
-          script -q -e -c "codex \"\$(cat prompt.md)\"" /dev/null | tee ai-response-recap.txt || true
+          # Pastikan file prompt.md ada biar nggak error 'No such file'
+          if [ ! -f prompt.md ]; then
+            echo "Error: prompt.md tidak ditemukan!"
+            exit 1
+          fi
+
+          # Gunakan 'exec' untuk mode non-interaktif
+          # Gunakan --approve-for-me (atau -a never) agar agent langsung mengeksekusi perbaikan tanpa nunggu konfirmasi Y/N
+          codex exec --approve-for-me "$(cat prompt.md)" 2>&1 | tee ai-response-recap.txt || true
 
       - name: Collect changed files and AI recap
         run: |
