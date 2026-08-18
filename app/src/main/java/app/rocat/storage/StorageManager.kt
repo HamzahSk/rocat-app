@@ -143,11 +143,15 @@ class StorageManager(
         mimeType: String,
         content: ByteArray,
     ): Uri? = withContext(Dispatchers.IO) {
-        if (folder == null) return@withContext null
+        if (folder == null || !folder.isDirectory || !folder.canWrite()) return@withContext null
         val safeName = sanitizeFileName(fileName).takeIf { it.isNotBlank() } ?: return@withContext null
         val target = folder.findFile(safeName) ?: folder.createFile(mimeType, safeName) ?: return@withContext null
         runCatching {
-            openOutputStream(target.uri)?.use { out -> out.write(content) }
+            if (!target.isFile) return@runCatching null
+            openOutputStream(target.uri)?.use { out ->
+                out.write(content)
+                out.flush()
+            }
                 ?: return@withContext null
             target.uri
         }.getOrNull()

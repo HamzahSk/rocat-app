@@ -56,6 +56,7 @@ class ScriptCanvasViewModel(
         val script: Script? = null,
         val loaded: Boolean = false,
         val executing: Boolean = false,
+        val executingFunction: String? = null,
         val output: String = "",
     )
 
@@ -289,7 +290,7 @@ class ScriptCanvasViewModel(
     ) {
         // Ensure the per-script scrape folder exists before the scrape writes anything.
         scrapeFolder()
-        mutableState.update { it.copy(executing = true, output = "") }
+        mutableState.update { it.copy(executing = true, executingFunction = functionName, output = "") }
         viewModelScope.launch {
             val result = try {
                 if (args.isNotEmpty()) {
@@ -307,7 +308,9 @@ class ScriptCanvasViewModel(
                 is ScriptResult.Success -> normalizeOutput(result.value)
                 is ScriptResult.Failure -> "Error: ${result.error}"
             }
-            mutableState.update { it.copy(executing = false, output = message) }
+            mutableState.update {
+                it.copy(executing = false, executingFunction = null, output = message)
+            }
         }
     }
 

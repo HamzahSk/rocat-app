@@ -148,8 +148,6 @@ private fun FullScreenVideoDialog(
     player: ExoPlayer,
     onExit: () -> Unit,
 ) {
-    val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
-
     Dialog(
         onDismissRequest = onExit,
         properties = DialogProperties(
@@ -157,6 +155,7 @@ private fun FullScreenVideoDialog(
             decorFitsSystemWindows = false,
         ),
     ) {
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
         LaunchedEffect(Unit) {
             val window = dialogWindow
             if (window != null) {
@@ -167,7 +166,11 @@ private fun FullScreenVideoDialog(
             }
         }
 
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {

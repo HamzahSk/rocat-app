@@ -136,7 +136,8 @@ fun ScriptCanvasScreen(
 
                             is ScriptUIComponent.Button -> ButtonComponent(
                                 label = component.label,
-                                enabled = !state.executing,
+                                enabled = !state.executing || state.executingFunction == component.functionName,
+                                loading = state.executing && state.executingFunction == component.functionName,
                                 onClick = { viewModel.onScriptButton(component.functionName) },
                             )
 
@@ -259,6 +260,7 @@ private fun InputComponent(
 private fun ButtonComponent(
     label: String,
     enabled: Boolean,
+    loading: Boolean,
     onClick: () -> Unit,
 ) {
     Button(
@@ -266,7 +268,7 @@ private fun ButtonComponent(
         enabled = enabled,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
     ) {
-        if (!enabled) {
+        if (loading) {
             CircularProgressIndicator(modifier = Modifier.width(16.dp).height(16.dp))
             Spacer(Modifier.width(8.dp))
         }

@@ -1,5 +1,7 @@
 # MEMORY INDEX — rocat-app
 
+- **Tahap 31 (2026-08-18)**: [UI/media fixes](task_20260818_0000_tahap31_ui_media_fixes.md) — isolasi loading tombol, fullscreen media, SAF writer hardening, template copy.
+
 Proyek: `rocat-app` — Android app modular ala Mihon untuk mengelola & menjalankan custom userscript (Rhino engine). Workspace: `rocat-app/` di root repo ini.
 
 ## Status Proyek Terkini
