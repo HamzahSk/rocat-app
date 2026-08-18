@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+
 package app.rocat.ui.components
 
 import android.app.Activity
@@ -37,6 +39,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource

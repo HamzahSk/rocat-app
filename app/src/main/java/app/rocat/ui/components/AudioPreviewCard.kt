@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(markerClass = [UnstableApi::class])
+
 package app.rocat.ui.components
 
 import androidx.compose.foundation.layout.Column
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import app.rocat.core.common.network.NetworkHelper
