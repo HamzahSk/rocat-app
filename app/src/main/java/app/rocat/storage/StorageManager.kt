@@ -143,25 +143,14 @@ class StorageManager(
         mimeType: String,
         content: ByteArray,
     ): Uri? = withContext(Dispatchers.IO) {
-        if (folder == null) {
-            // Tahap 31.3: log so devs can see *why* the download silently failed — usually
-            // because the user hasn't picked a main directory yet (first-launch gate).
-            android.util.Log.w("RoCatStorage", "saveFileToScrapeFolder: no folder (storage not configured?)")
-            return@withContext null
-        }
+        if (folder == null) return@withContext null
         val safeName = sanitizeFileName(fileName).takeIf { it.isNotBlank() } ?: return@withContext null
-        val target = folder.findFile(safeName) ?: folder.createFile(mimeType, safeName) ?: run {
-            android.util.Log.w("RoCatStorage", "saveFileToScrapeFolder: createFile failed for $safeName (mime=$mimeType)")
-            return@withContext null
-        }
+        val target = folder.findFile(safeName) ?: folder.createFile(mimeType, safeName) ?: return@withContext null
         runCatching {
             openOutputStream(target.uri)?.use { out -> out.write(content) }
                 ?: return@withContext null
             target.uri
-        }.getOrElse { error ->
-            android.util.Log.w("RoCatStorage", "saveFileToScrapeFolder: openOutputStream failed for $safeName", error)
-            null
-        }
+        }.getOrNull()
     }
 
     /** Convenience overload writing a UTF-8 [String] as plain text. */
@@ -180,14 +169,8 @@ class StorageManager(
     /** Opens (or creates) an [OutputStream] for [uri] through the SAF content provider. */
     private fun openOutputStream(uri: Uri): OutputStream? {
         val resolver = context.contentResolver
-        // Tahap 31.3: try the "wt" (write+truncate) mode first, then fall back to plain
-        // write. Some SAF providers (e.g. older MediaStore) reject "wt"; others reject
-        // the default mode if the file is read-only.
         val stream = runCatching { resolver.openOutputStream(uri, "wt") }.getOrNull()
-            ?: runCatching { resolver.openOutputStream(uri, "w") }.getOrNull()
-            ?: runCatching { resolver.openOutputStream(uri) }.getOrNull()
-        if (stream == null) android.util.Log.w("RoCatStorage", "openOutputStream: all modes failed for $uri")
-        return stream
+        return stream ?: runCatching { resolver.openOutputStream(uri) }.getOrNull()
     }
 
     /** Strips path separators / control chars so the name is a valid document file name. */

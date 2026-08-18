@@ -70,18 +70,10 @@ enum class StringKey(val key: String) {
     imageSaved("image_saved"),
     videoSaved("video_saved"),
     downloadFailed("download_failed"),
-    // Tahap 31.3: clearer message when the user has not picked a storage folder yet.
-    downloadFailedNoStorage("download_failed_no_storage"),
+
     // UI templates (Tahap 22)
     copyJson("copy_json"),
     jsonCopied("json_copied"),
-    // Tahap 31.4: HTML / text / badge copy buttons share the same labels.
-    copyHtml("copy_html"),
-    copyText("copy_text"),
-    copyBadge("copy_badge"),
-    htmlCopied("html_copied"),
-    textCopied("text_copied"),
-    badgeCopied("badge_copied"),
     play("play"),
     pause("pause"),
     downloadAudio("download_audio"),

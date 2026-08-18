@@ -1,12 +1,10 @@
 package app.rocat.ui.canvas
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -40,11 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.rocat.i18n.StringKey
@@ -142,10 +136,8 @@ fun ScriptCanvasScreen(
 
                             is ScriptUIComponent.Button -> ButtonComponent(
                                 label = component.label,
-                                loading = viewModel.isButtonLoading(component.id),
-                                onClick = {
-                                    viewModel.onScriptButton(component.id, component.functionName)
-                                },
+                                enabled = !state.executing,
+                                onClick = { viewModel.onScriptButton(component.functionName) },
                             )
 
                             is ScriptUIComponent.Image -> ImagePreviewCard(
@@ -156,7 +148,6 @@ fun ScriptCanvasScreen(
                                 folder = viewModel::scrapeFolder,
                                 successMessage = stringResource(StringKey.imageSaved),
                                 failureMessage = stringResource(StringKey.downloadFailed),
-                                noStorageMessage = stringResource(StringKey.downloadFailedNoStorage),
                             )
 
                             is ScriptUIComponent.Video -> VideoPreviewCard(
@@ -171,7 +162,6 @@ fun ScriptCanvasScreen(
                                 downloadLabel = stringResource(StringKey.downloadVideo),
                                 successMessage = stringResource(StringKey.videoSaved),
                                 failureMessage = stringResource(StringKey.downloadFailed),
-                                noStorageMessage = stringResource(StringKey.downloadFailedNoStorage),
                             )
 
                             is ScriptUIComponent.LogText -> LogComponent(text = component.text)
@@ -195,8 +185,6 @@ fun ScriptCanvasScreen(
                             is ScriptUIComponent.HtmlPreview -> HtmlPreviewCard(
                                 htmlContent = component.htmlContent,
                                 title = component.title,
-                                copyLabel = stringResource(StringKey.copyHtml),
-                                copiedMessage = stringResource(StringKey.htmlCopied),
                             )
 
                             is ScriptUIComponent.Audio -> AudioPreviewCard(
@@ -210,21 +198,14 @@ fun ScriptCanvasScreen(
                                 downloadLabel = stringResource(StringKey.downloadAudio),
                                 successMessage = stringResource(StringKey.audioSaved),
                                 failureMessage = stringResource(StringKey.downloadFailed),
-                                noStorageMessage = stringResource(StringKey.downloadFailedNoStorage),
                             )
 
                             is ScriptUIComponent.Alert -> AlertBannerCard(
                                 message = component.message,
                                 type = component.type,
-                                copyLabel = stringResource(StringKey.copyText),
-                                copiedMessage = stringResource(StringKey.textCopied),
                             )
 
-                            is ScriptUIComponent.BadgeGroup -> BadgeGroupCard(
-                                badges = component.badges,
-                                copyLabel = stringResource(StringKey.copyBadge),
-                                copiedMessage = stringResource(StringKey.badgeCopied),
-                            )
+                            is ScriptUIComponent.BadgeGroup -> BadgeGroupCard(badges = component.badges)
                         }
                         Spacer(Modifier.height(4.dp))
                     }
@@ -232,12 +213,7 @@ fun ScriptCanvasScreen(
 
                 if (state.executing || state.output.isNotEmpty()) {
                     item(key = "output") {
-                        ConsoleOutput(
-                            log = state.output,
-                            executing = state.executing,
-                            copyLabel = stringResource(StringKey.copyText),
-                            copiedMessage = stringResource(StringKey.textCopied),
-                        )
+                        ConsoleOutput(log = state.output, executing = state.executing)
                     }
                 }
             }
@@ -252,7 +228,7 @@ private fun CanvasEmptyHint(onRefresh: () -> Unit) {
             Text(
                 stringResource(StringKey.blankCanvas),
                 style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
             )
             Spacer(Modifier.height(4.dp))
             Text(
@@ -282,23 +258,16 @@ private fun InputComponent(
 @Composable
 private fun ButtonComponent(
     label: String,
-    loading: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    // Tahap 31.1: a button only disables / shows a spinner when *its own* script
-    // handler is in flight (`loading = viewModel.isButtonLoading(component.id)`).
-    // Other buttons in the canvas stay fully clickable so the user is never locked
-    // out of the script-driven flow.
     Button(
         onClick = onClick,
-        enabled = !loading,
+        enabled = enabled,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
     ) {
-        if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier.width(16.dp).height(16.dp),
-                strokeWidth = 2.dp,
-            )
+        if (!enabled) {
+            CircularProgressIndicator(modifier = Modifier.width(16.dp).height(16.dp))
             Spacer(Modifier.width(8.dp))
         }
         Text(label)
@@ -321,44 +290,16 @@ private fun LogComponent(text: String) {
     }
 }
 
-/** Console showing the return value (or error) of the last script invocation.
- *  Tahap 31.4: includes a **Copy** text button so the log / return value can be
- *  pasted elsewhere with one tap + Toast confirmation. */
+/** Console showing the return value (or error) of the last script invocation. */
 @Composable
-private fun ConsoleOutput(
-    log: String,
-    executing: Boolean,
-    copyLabel: String,
-    copiedMessage: String,
-) {
-    val clipboard = LocalClipboardManager.current
-    val context = LocalContext.current
+private fun ConsoleOutput(log: String, executing: Boolean) {
     ElevatedCard(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    stringResource(StringKey.output),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (log.isNotBlank()) {
-                    TextButton(onClick = {
-                        clipboard.setText(AnnotatedString(log))
-                        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
-                    }) {
-                        Text(
-                            copyLabel,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.SemiBold,
-                            ),
-                        )
-                    }
-                }
-            }
+            Text(
+                stringResource(StringKey.output),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            )
             if (executing) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

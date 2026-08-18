@@ -1,5 +1,3 @@
-@file:androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-
 package app.rocat.ui.components
 
 import android.app.Activity
@@ -20,7 +18,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +36,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -152,12 +148,7 @@ private fun FullScreenVideoDialog(
     player: ExoPlayer,
     onExit: () -> Unit,
 ) {
-    val view = LocalView.current
-    val dialogWindow = remember(view) { (view.parent as? DialogWindowProvider)?.window }
-    // Tahap 31.2: re-apply immersive on every frame for the first second so the dialog
-    // never settles into a "flat" look if the activity-orientation change races the
-    // dialog mount on slow devices.
-    var immersiveFrames by remember { mutableStateOf(0) }
+    val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
 
     Dialog(
         onDismissRequest = onExit,
@@ -167,24 +158,15 @@ private fun FullScreenVideoDialog(
         ),
     ) {
         LaunchedEffect(Unit) {
-            val window = dialogWindow ?: return@LaunchedEffect
-            WindowCompat.getInsetsController(window, window.decorView).apply {
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                hide(WindowInsetsCompat.Type.systemBars())
-            }
-        }
-        SideEffect {
-            // Belt-and-suspenders: the dialog window can change when the orientation
-            // rotation kicks in (after requestedOrientation = SENSOR_LANDSCAPE). Re-hide
-            // the system bars a few times so the immersive state sticks.
-            if (immersiveFrames < 5) {
-                dialogWindow?.let { window ->
-                    WindowCompat.getInsetsController(window, window.decorView)
-                        .hide(WindowInsetsCompat.Type.systemBars())
+            val window = dialogWindow
+            if (window != null) {
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    hide(WindowInsetsCompat.Type.systemBars())
                 }
-                immersiveFrames++
             }
         }
+
         Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
             AndroidView(
                 factory = { ctx ->

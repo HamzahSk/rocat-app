@@ -62,27 +62,20 @@ class ScriptCanvasViewModel(
     /** The ordered, script-driven list of components rendered by the canvas. */
     val uiComponents: SnapshotStateList<ScriptUIComponent> = mutableStateListOf()
 
-    /** Monotonic session id. Incremented whenever a fresh render starts (a new `onLaunch()`
-     *  draw or a script source change) so queued bridge updates from an older render are
-     *  discarded on the main thread. */
+    /**
+     * Monotonic session id. Incremented whenever a fresh render starts (a new `onLaunch()`
+     * draw or a script source change) so queued bridge updates from an older render are
+     * discarded on the main thread.
+     */
     @Volatile
     private var uiSession: Long = 0
 
-    /** Per-script, per-button loading state (Tahap 31.1). Previously a single
-     *  `state.executing` boolean drove every Button in the canvas — clicking button A
-     *  animated the spinner on button B. The map is keyed by [ScriptUIComponent.Button.id]
-     *  (assigned when the script publishes the button via `RoCatUI.addButton`) so each
-     *  button only animates while its own handler is in flight. The map is also cleared
-     *  on every fresh `onLaunch()` render via [renderOnLaunch]. */
-    private val buttonLoading: MutableMap<String, Long> = mutableMapOf()
-
-    /** Monotonic counter handed out as a unique `id` for every script-published button. */
-    @Volatile
-    private var buttonCounter: Long = 0
-    /** The per-script scrape folder inside `[MainDirectory]/Scrapes/`, created lazily. */
-    private var scrapeFolder: androidx.documentfile.provider.DocumentFile? = null
     /** Last source string that triggered a render; used to auto-redraw on edit. */
     private var lastSource: String? = null
+
+    /** The per-script scrape folder inside `[MainDirectory]/Scrapes/`, created lazily. */
+    @Volatile
+    private var scrapeFolder: androidx.documentfile.provider.DocumentFile? = null
 
     /**
      * Creates (or reuses) the scrape output folder for this script. Tahap 15.2: every
@@ -106,17 +99,10 @@ class ScriptCanvasViewModel(
     private fun scriptBaseUrl(): String? =
         state.value.script?.matches?.let { baseUrlFromMatches(it) }
 
-
-
     private val uiBridge = object : ScriptUiBridge {
         override fun addInput(id: String, hint: String) = postUi(uiSession) { addOrReplaceInput(id, hint) }
         override fun addButton(label: String, functionName: String) = postUi(uiSession) {
-            // Tahap 31.1: hand out a stable id so the canvas can isolate the loading
-            // spinner per button. The id is reused when the script re-declares the same
-            // (label, functionName) — this keeps the button visually stable across
-            // re-renders (e.g. a "Search" button drawn on every onLaunch()).
-            val id = buttonIdFor(label, functionName)
-            uiComponents.add(ScriptUIComponent.Button(id, label, functionName))
+            uiComponents.add(ScriptUIComponent.Button(label, functionName))
         }
         override fun thumbnailPreview(url: String) = postUi(uiSession) {
             uiComponents.add(ScriptUIComponent.Image(url, "", true, resolveHeaders(emptyMap(), url)))
@@ -236,10 +222,7 @@ class ScriptCanvasViewModel(
         uiSession++
         val session = uiSession
         postUi(session) { uiComponents.clear() }
-        // Tahap 31.1: drop every per-button loading flag so the new render starts with a
-        // clean slate — the old buttons (if any were still spinning) no longer exist.
-        synchronized(buttonLoading) { buttonLoading.clear() }
-        synchronized(buttonIds) { buttonIds.clear() }
+        mutableState.update { it.copy(output = "") }
 
         viewModelScope.launch {
             val result = try {
@@ -273,72 +256,40 @@ class ScriptCanvasViewModel(
 
     /**
      * Pressing a `RoCatUI.Button`: gathers every non-blank input into a `Map<id, value>`
-     * and invokes the named JS function with that object as a single argument. Tahap
-     * 31.1: the spinner is bound to the *specific* [buttonId] the user tapped — other
-     * buttons in the canvas stay clickable (with their normal labels) until the script
-     * finishes its handler.
+     * and invokes the named JS function with that object as a single argument.
      */
-    fun onScriptButton(buttonId: String, functionName: String) {
+    fun onScriptButton(functionName: String) {
         val script = state.value.script ?: return
         val inputs = uiComponents
             .filterIsInstance<ScriptUIComponent.Input>()
             .filter { it.value.isNotBlank() }
             .associate { it.id to it.value.trim() }
-        execute(script, functionName, buttonId, inputs = inputs, args = emptyList())
+        execute(script, functionName, inputs = inputs, args = emptyList())
     }
 
     /**
      * Tapping a tile of a `RoCatUI` grid: forwards the tile's raw JSON payload as a
      * string argument (`openDetail(itemJson)`) so the script can render its detail page.
-     * Tahap 31.1: grid taps still mark the whole canvas as executing (a single click is
-     * driving the canvas redraw), but they no longer ripple to script-published buttons
-     * because those read [isButtonLoading].
      */
     fun onGridItemClick(functionName: String, payload: String) {
         val script = state.value.script ?: return
-        execute(script, functionName, null, inputs = emptyMap(), args = listOf(payload))
+        execute(script, functionName, inputs = emptyMap(), args = listOf(payload))
     }
-
-    /** Returns `true` while the script handler for the given button is still in flight. */
-    fun isButtonLoading(buttonId: String): Boolean = buttonLoading.containsKey(buttonId)
-    /** Tahap 31.1: stable, reusable id for a `(label, functionName)` button pair so the
-     *  same button published by `RoCatUI.addButton(...)` keeps its identity across
-     *  re-renders (and therefore its own loading state). Each (functionName, label)
-     *  pair maps to exactly one id for the lifetime of the canvas; multiple buttons
-     *  with identical names get a counter suffix so they stay independent. */
-    private val buttonIds: MutableMap<String, String> = mutableMapOf()
-    private fun buttonIdFor(label: String, functionName: String): String =
-        synchronized(buttonIds) {
-            val key = "$functionName::$label"
-            buttonIds.getOrPut(key) { "${++buttonCounter}::$key" }
-        }
-
 
     /** Re-runs the script's `onLaunch()` to redraw the canvas from scratch. */
     fun rebuildCanvas() {
         state.value.script?.let { renderOnLaunch(it) }
     }
-    /**
-     * Tahap 31.1: runs a script function and tracks the per-button loading state when
-     * [buttonId] is non-null. The button that triggered the call animates its own spinner
-     * (via [isButtonLoading]) while every other button on the canvas stays enabled and
-     * shows its label unchanged. Grid taps still toggle `state.executing` because a
-     * single click is replacing the whole canvas.
-     */
+
     private fun execute(
         script: Script,
         functionName: String,
-        buttonId: String?,
         inputs: Map<String, String>,
         args: List<String>,
     ) {
         // Ensure the per-script scrape folder exists before the scrape writes anything.
         scrapeFolder()
-        if (buttonId != null) {
-            synchronized(buttonLoading) { buttonLoading[buttonId] = uiSession }
-        } else {
-            mutableState.update { it.copy(executing = true, output = "") }
-        }
+        mutableState.update { it.copy(executing = true, output = "") }
         viewModelScope.launch {
             val result = try {
                 if (args.isNotEmpty()) {
@@ -356,13 +307,10 @@ class ScriptCanvasViewModel(
                 is ScriptResult.Success -> normalizeOutput(result.value)
                 is ScriptResult.Failure -> "Error: ${result.error}"
             }
-            if (buttonId != null) {
-                synchronized(buttonLoading) { buttonLoading.remove(buttonId) }
-            } else {
-                mutableState.update { it.copy(executing = false, output = message) }
-            }
+            mutableState.update { it.copy(executing = false, output = message) }
         }
     }
+
     /** Remembers the id and refreshes its hint when the script re-declares the same id. */
     private fun addOrReplaceInput(id: String, hint: String) {
         val index = uiComponents.indexOfFirst {

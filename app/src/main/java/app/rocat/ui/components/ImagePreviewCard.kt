@@ -1,6 +1,5 @@
 package app.rocat.ui.components
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -12,10 +11,7 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -36,13 +32,6 @@ import coil3.request.ImageRequest
  *
  * [headers] (Tahap 24.1) are attached to the Coil [ImageRequest] and the download so
  * hotlink-protected hosts (which require a `Referer`) serve the image.
- *
- * **Tahap 31.2**: tapping the image opens an immersive [FullScreenImageDialog]
- * (WindowInsets hidden, edge-to-edge, real overlay) — replaces the previous "flat"
- * inline-only behaviour so users get a proper fullscreen viewer.
- *
- * **Tahap 31.3**: [noStorageMessage] is shown via Toast when [folder] is null (the
- * user has not picked a storage folder yet), so the failure is no longer silent.
  */
 @Composable
 fun ImagePreviewCard(
@@ -53,7 +42,6 @@ fun ImagePreviewCard(
     folder: () -> DocumentFile?,
     successMessage: String,
     failureMessage: String,
-    noStorageMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val downloader = rememberMediaDownloaderState()
@@ -69,9 +57,6 @@ fun ImagePreviewCard(
             }
         }.build()
     }
-    // Tahap 31.2: tapping the image opens an immersive full-screen viewer so the
-    // preview is no longer "flat" against the rest of the canvas.
-    var fullScreen by remember { mutableStateOf(false) }
 
     ElevatedCard(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -92,8 +77,7 @@ fun ImagePreviewCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 300.dp)
-                        .padding(8.dp)
-                        .clickable { fullScreen = true },
+                        .padding(8.dp),
                 )
                 if (allowDownload) {
                     DownloadActionButton(
@@ -107,7 +91,6 @@ fun ImagePreviewCard(
                                 headers = headers,
                                 successMessage = successMessage,
                                 failureMessage = failureMessage,
-                                noStorageMessage = noStorageMessage,
                             )
                         },
                         modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
@@ -115,15 +98,6 @@ fun ImagePreviewCard(
                 }
             }
         }
-    }
-
-    if (fullScreen) {
-        FullScreenImageDialog(
-            url = url,
-            title = title,
-            headers = headers,
-            onDismiss = { fullScreen = false },
-        )
     }
 }
 

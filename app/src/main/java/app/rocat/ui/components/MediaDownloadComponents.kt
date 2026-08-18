@@ -56,15 +56,7 @@ class MediaDownloaderState(
         headers: Map<String, String> = emptyMap(),
         successMessage: String,
         failureMessage: String,
-        noStorageMessage: String? = null,
     ) {
-        if (folder == null) {
-        // Tahap 31.3: tell the user *why* the download failed when storage is not
-        // configured yet (first-launch gate). Before this fix the failure was
-        // indistinguishable from "network error", so users had no idea what to do.
-            Toast.makeText(context, noStorageMessage ?: failureMessage, Toast.LENGTH_LONG).show()
-            return
-        }
         if (status is DownloadStatus.Downloading) return
         val downloader = Injekt.get<MediaDownloader>()
         scope.launch {

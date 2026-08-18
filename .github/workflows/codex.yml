@@ -1,0 +1,80 @@
+name: Codex DB Fixer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "prompt.md"
+
+permissions:
+  contents: read
+
+jobs:
+  codex-run:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version-file: .github/.java-version
+          distribution: temurin
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: Configure Codex
+        # Membangun file config.toml secara dinamis menggunakan GitHub Secrets
+        run: |
+          mkdir -p ~/.codex
+          cat << EOF > ~/.codex/config.toml
+          model = "gpt-5.6-sol"
+          model_provider = "agentrouter"
+
+          [model_providers.agentrouter]
+          name = "AgentRouter"
+          base_url = "https://rocckyai.rockyyrec.workers.dev/v1"
+          wire_api = "responses"
+          experimental_bearer_token = "sk-1BOhosptLV2kztUELb9PhjjvYyIkIhqf7EYFbseS984Kb3FL"
+          EOF
+
+      - name: Check Codex Version
+        run: codex --version
+
+      - name: Run Codex
+        run: |
+          # Menjalankan Codex dan menyimpan log terminal ke file
+          # Catatan: Sesuaikan flag CLI (seperti --non-interactive atau sejenisnya) 
+          # jika Codex membutuhkan argumen khusus untuk berjalan di mode CI/CD tanpa prompt manual.
+          codex "$(cat prompt.md)" 2>&1 | tee ai-response-recap.txt || true
+
+      - name: Collect changed files and AI recap
+        run: |
+          git add -A
+
+          mkdir -p output_artifact
+
+          # Menyalin semua file proyek yang diubah oleh AI
+          for file in $(git diff --cached --name-only); do
+            if [ -f "$file" ]; then
+              mkdir -p "output_artifact/$(dirname "$file")"
+              cp "$file" "output_artifact/$file"
+            fi
+          done
+
+          # Memasukkan file recap respons AI ke dalam artifact baru
+          if [ -f ai-response-recap.txt ]; then
+            cp ai-response-recap.txt output_artifact/ai-response-recap.txt
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-output-${{ github.sha }}
+          path: output_artifact/

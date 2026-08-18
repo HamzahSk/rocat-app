@@ -11,14 +11,11 @@ open class Strings(
 ) {
     operator fun get(key: StringKey): String = map[key] ?: EnglishStrings[key]
 
-    /** Resolves the human-readable label for [language] (the displayed item in the picker). */
-    fun languageLabel(language: AppLanguage): String = when (language) {
-        AppLanguage.ENGLISH -> get(StringKey.languageEnglish)
-        AppLanguage.INDONESIAN -> get(StringKey.languageIndonesian)
-    }
+    /** Returns the localized label of [language] itself (e.g. "English" / "Indonesia"). */
+    fun languageLabel(language: AppLanguage): String = this[language.labelKey]
 
-    companion object Reference {
-        /** Resolves the right [Strings] table for [language]; unknown languages fall back to English. */
+    companion object {
+        /** Builds a [Strings] for [language], falling back to English when needed. */
         fun of(language: AppLanguage): Strings = when (language) {
             AppLanguage.ENGLISH -> EnglishStrings
             AppLanguage.INDONESIAN -> IndonesianStrings
@@ -26,6 +23,7 @@ open class Strings(
     }
 }
 
+/** English (base) translations. */
 object EnglishStrings : Strings(
     language = AppLanguage.ENGLISH,
     map = mapOf(
@@ -80,17 +78,9 @@ object EnglishStrings : Strings(
         StringKey.imageSaved to "Image saved to the Scrapes folder",
         StringKey.videoSaved to "Video saved to the Scrapes folder",
         StringKey.downloadFailed to "Download failed",
-        // Tahap 31.3
-        StringKey.downloadFailedNoStorage to "Pick a storage folder in Settings before downloading.",
+
         StringKey.copyJson to "Copy JSON",
         StringKey.jsonCopied to "JSON copied to clipboard",
-        // Tahap 31.4
-        StringKey.copyHtml to "Copy HTML",
-        StringKey.copyText to "Copy text",
-        StringKey.copyBadge to "Copy badge",
-        StringKey.htmlCopied to "HTML copied to clipboard",
-        StringKey.textCopied to "Text copied to clipboard",
-        StringKey.badgeCopied to "Badge copied to clipboard",
         StringKey.play to "Play",
         StringKey.pause to "Pause",
         StringKey.downloadAudio to "Download Audio",
@@ -226,17 +216,9 @@ object IndonesianStrings : Strings(
         StringKey.imageSaved to "Gambar berhasil disimpan di folder Scrapes",
         StringKey.videoSaved to "Video berhasil disimpan di folder Scrapes",
         StringKey.downloadFailed to "Unduhan gagal",
-        // Tahap 31.3
-        StringKey.downloadFailedNoStorage to "Pilih folder penyimpanan di Pengaturan sebelum mengunduh.",
-        // Tahap 31.4
+
         StringKey.copyJson to "Salin JSON",
         StringKey.jsonCopied to "JSON disalin ke clipboard",
-        StringKey.copyHtml to "Salin HTML",
-        StringKey.copyText to "Salin teks",
-        StringKey.copyBadge to "Salin lencana",
-        StringKey.htmlCopied to "HTML disalin ke clipboard",
-        StringKey.textCopied to "Teks disalin ke clipboard",
-        StringKey.badgeCopied to "Lencana disalin ke clipboard",
         StringKey.play to "Putar",
         StringKey.pause to "Jeda",
         StringKey.downloadAudio to "Unduh Audio",

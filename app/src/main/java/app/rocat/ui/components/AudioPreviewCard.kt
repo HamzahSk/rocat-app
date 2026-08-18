@@ -1,5 +1,3 @@
-@file:androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-
 package app.rocat.ui.components
 
 import androidx.compose.foundation.layout.Column
@@ -36,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import app.rocat.core.common.network.NetworkHelper
@@ -62,11 +59,10 @@ fun AudioPreviewCard(
     downloadLabel: String,
     successMessage: String,
     failureMessage: String,
-    noStorageMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val downloader = rememberMediaDownloaderState()
     val context = LocalContext.current
+    val downloader = rememberMediaDownloaderState()
 
     val player = remember(url, headers) {
         ExoPlayer.Builder(context).build().apply {
@@ -162,9 +158,10 @@ fun AudioPreviewCard(
                             headers = headers,
                             successMessage = successMessage,
                             failureMessage = failureMessage,
-                            noStorageMessage = noStorageMessage,
                         )
                     },
+                    enabled = downloader.status !is DownloadStatus.Downloading,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                 ) {
                     if (downloader.status is DownloadStatus.Downloading) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)

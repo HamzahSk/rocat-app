@@ -9,10 +9,7 @@ import android.text.Spanned
 import android.text.style.StyleSpan
 import android.text.style.UnderlineSpan
 import android.text.style.URLSpan
-import android.widget.Toast
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,12 +19,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -44,22 +39,14 @@ import androidx.compose.ui.unit.dp
  * `android.text.Html.fromHtml` (bold / italic / underline / links / lists) and renders
  * it as an [AnnotatedString] inside a compact, scrollable block — no heavyweight
  * WebView needed. Tapping a link opens the system browser.
- *
- * **Tahap 31.4**: a small **Copy** text button now sits in the header (when
- * [allowCopy] is true) — copies the original [htmlContent] string to the clipboard
- * and confirms with [copiedMessage] via Toast, mirroring the JSON log card UX.
  */
 @Composable
 fun HtmlPreviewCard(
     htmlContent: String,
     title: String = "",
-    allowCopy: Boolean = true,
-    copyLabel: String = "Copy",
-    copiedMessage: String = "Copied to clipboard",
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
     val linkStyle = SpanStyle(
         color = MaterialTheme.colorScheme.primary,
         textDecoration = TextDecoration.Underline,
@@ -81,33 +68,15 @@ fun HtmlPreviewCard(
 
     ScriptCanvasCard(modifier = modifier) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Header row: title on the left, optional Copy button on the right (Tahap 31.4).
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 12.dp, end = 4.dp, top = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
+            if (title.isNotBlank()) {
                 Text(
-                    text = title.ifBlank { "HTML Preview" },
+                    text = title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp),
                 )
-                if (allowCopy && htmlContent.isNotBlank()) {
-                    TextButton(onClick = {
-                        clipboard.setText(AnnotatedString(htmlContent))
-                        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
-                    }) {
-                        Text(
-                            copyLabel,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        )
-                    }
-                }
+                Spacer(Modifier.height(4.dp))
             }
-            if (title.isNotBlank()) Spacer(Modifier.height(4.dp))
             Text(
                 text = annotated,
                 style = MaterialTheme.typography.bodySmall,

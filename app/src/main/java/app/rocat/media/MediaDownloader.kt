@@ -40,31 +40,14 @@ import java.util.Locale
         headers: Map<String, String> = emptyMap(),
         onProgress: (Float) -> Unit = {},
     ): String? = withContext(Dispatchers.IO) {
-        if (folder == null) {
-            android.util.Log.w("RoCatMedia", "download: no folder (storage not configured?) url=$url")
-            return@withContext null
-        }
-        val bytes = fetchBytes(url, headers, onProgress)
-        if (bytes == null) {
-            android.util.Log.w("RoCatMedia", "download: fetchBytes failed url=$url")
-            return@withContext null
-        }
-        val saved = runCatching {
-            storageManager.saveFileToScrapeFolder(
-                folder = folder,
-                fileName = fileName,
-                mimeType = mimeType,
-                content = bytes,
-            )?.toString()
-        }.getOrElse { error ->
-            // Tahap 31.3: any throwable (SecurityException on revoked SAF grant,
-            // IOException on disconnected USB drive, ...) is caught here and
-            // surfaced as a log + Toast — no more silent force-close.
-            android.util.Log.w("RoCatMedia", "download: saveFileToScrapeFolder threw", error)
-            null
-        }
-        if (saved == null) android.util.Log.w("RoCatMedia", "download: save returned null url=$url")
-        saved
+        if (folder == null) return@withContext null
+        val bytes = fetchBytes(url, headers, onProgress) ?: return@withContext null
+        storageManager.saveFileToScrapeFolder(
+            folder = folder,
+            fileName = fileName,
+            mimeType = mimeType,
+            content = bytes,
+        )?.toString()
     }
 
     /**

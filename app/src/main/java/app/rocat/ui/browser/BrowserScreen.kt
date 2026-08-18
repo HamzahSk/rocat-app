@@ -40,7 +40,7 @@ import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -606,7 +606,7 @@ private fun BrowserOptionsSheet(
                 modifier = Modifier.clickable(onClick = onCopyLink),
             )
             ListItem(
-                leadingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
+                leadingContent = { Icon(Icons.Filled.OpenInNew, contentDescription = null) },
                 headlineContent = { Text(stringResource(StringKey.openInBrowser)) },
                 modifier = Modifier.clickable(onClick = onOpenExternal),
             )
