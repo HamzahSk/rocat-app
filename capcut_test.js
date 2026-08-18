@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CapCut - Auto Create Account (Non-Pro) with Native Touch
-// @version      9.1.0
-// @description  Auto generate akun CapCut non-pro dengan native touch click (Tahap 30 v2: fix koordinat CSS-px→view-px & fokus WebView)
+// @version      10.0.0
+// @description  Auto generate akun CapCut non-pro dengan native touch click dan sinkronisasi SPA/full-page screenshot (Tahap 33)
 // @author       RoCat User
 // @category     Tools
 // @match        https://www.capcut.com/*
@@ -44,6 +44,8 @@ function findAndTagButton(labels) {
     try {
         var result = page.evaluate(function(labels) {
             var names = JSON.parse(labels);
+            var tagged = document.querySelectorAll('[data-rocat-click="1"]');
+            for (var t = 0; t < tagged.length; t++) tagged[t].removeAttribute('data-rocat-click');
             var all = document.querySelectorAll('button, a, [role="button"], input[type="submit"]');
             for (var i = 0; i < all.length; i++) {
                 var el = all[i];
@@ -61,6 +63,19 @@ function findAndTagButton(labels) {
         return result || { success: false };
     } catch (e) {
         return { success: false };
+    }
+}
+
+/** Waits until the React form transition has produced a visible email field. */
+function waitForEmailForm(timeoutMs) {
+    try {
+        page.waitForSelector(
+            'input[type="email"], input[name="email"], input[placeholder*="Email"], input[placeholder*="email"]',
+            { timeout: timeoutMs || 5000 }
+        );
+        return true;
+    } catch (e) {
+        return false;
     }
 }
 
@@ -139,6 +154,11 @@ function checkEmailInputOnPage() {
                     });
                 }
             }
+            var passwordInputs = document.querySelectorAll('input[type="password"]');
+            var visiblePasswordCount = 0;
+            for (var p = 0; p < passwordInputs.length; p++) {
+                if (passwordInputs[p].offsetParent !== null) visiblePasswordCount++;
+            }
             
             // Cari tombol lanjutkan
             var buttons = document.querySelectorAll('button, a, [role="button"]');
@@ -158,7 +178,8 @@ function checkEmailInputOnPage() {
                 hasEmailInput: visibleInputs.length > 0,
                 emailInputs: visibleInputs,
                 continueButtons: continueButtons,
-                totalEmailInputs: visibleInputs.length
+                totalEmailInputs: visibleInputs.length,
+                totalPasswordInputs: visiblePasswordCount
             };
         });
         return result;
@@ -221,7 +242,8 @@ function createAccount(inputs) {
             ? "✅ Tap native dikirim untuk 'Continue with email'"
             : "⚠️ Tombol 'Continue with email' tidak ditemukan");
 
-        page.waitForTimeout(2500);
+        var formReady = waitForEmailForm(6000);
+        if (!formReady) page.waitForTimeout(500);
 
         // ===== CEK APAKAH INPUT EMAIL MUNCUL =====
         RoCatUI.log("🔍 Mengecek apakah input email muncul...");
@@ -287,6 +309,9 @@ function createAccount(inputs) {
             // JSON log
             RoCatUI.addJsonLog({
                 status: "success",
+                berhasil_tap: tapOk,
+                email_inputs: emailCheck.totalEmailInputs,
+                password_inputs: emailCheck.totalPasswordInputs,
                 tap_berhasil: tapOk,
                 email: email,
                 password: password,
@@ -294,7 +319,7 @@ function createAccount(inputs) {
                 email_inputs_detail: emailCheck.emailInputs,
                 continue_buttons: emailCheck.continueButtons,
                 total_screenshots: stepScreenshots.length
-            }, "✅ Detail Keberhasilan", true);
+            }, "📊 Detail Lengkap", true);
             
         } else {
             // GAGAL - Input email tidak muncul

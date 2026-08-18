@@ -22,6 +22,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 
@@ -56,6 +57,7 @@ class HeadlessWebViewManager(private val appContext: Context) {
         val ref = AtomicReference<WebView?>()
         onMain {
             try {
+                enableWholeDocumentDrawing()
                 val wv = WebView(appContext)
                 WebViewUtil.setDefaultSettings(wv)
                 wv.setBackgroundColor(Color.TRANSPARENT)
@@ -135,11 +137,15 @@ class HeadlessWebViewManager(private val appContext: Context) {
         val wv = webView ?: ensureWebView() ?: return false
         measureIfNeeded(wv)
         prepareForInteraction(wv)
-        val scale = viewportScale(wv) ?: return clickViaJs(selector)
         val bounds = elementBounds(wv, selector)
         if (bounds != null) {
-            val cx = ((bounds[0] + bounds[2] / 2f) * scale[0]).roundToInt()
-            val cy = ((bounds[1] + bounds[3] / 2f) * scale[1]).roundToInt()
+            val scale = viewportScale(wv) ?: return clickViaJs(selector)
+            val viewportLeft = bounds[0] - bounds[4]
+            val viewportTop = bounds[1] - bounds[5]
+            val cx = ((viewportLeft + bounds[2] / 2f) * scale[0]).roundToInt()
+                .coerceIn(0, (wv.width - 1).coerceAtLeast(0))
+            val cy = ((viewportTop + bounds[3] / 2f) * scale[1]).roundToInt()
+                .coerceIn(0, (wv.height - 1).coerceAtLeast(0))
             if (dispatchNativeTap(wv, cx, cy)) return true
         }
         return clickViaJs(selector)
@@ -164,13 +170,7 @@ class HeadlessWebViewManager(private val appContext: Context) {
                 // schedule frames on its own, so force one real frame here (same trick as
                 // screenshot()). This makes the renderer apply the fresh 1366×768 size and
                 // produce up-to-date hit-test geometry before any touch is dispatched.
-                try {
-                    val scratch = Bitmap.createBitmap(wv.width, wv.height, Bitmap.Config.ARGB_8888)
-                    wv.draw(Canvas(scratch))
-                    scratch.recycle()
-                } catch (_: Throwable) {
-                    // Best-effort; the viewport-scale poll in viewportScale() still settles.
-                }
+                drawCompositorFrame(wv)
             } catch (_: Throwable) {
                 // Layout is best-effort; touch fallback still applies below.
             }
@@ -272,36 +272,38 @@ class HeadlessWebViewManager(private val appContext: Context) {
     }
 
     /**
-     * Returns the live bounding box of [selector] as `[left, top, width, height]`,
-     * after scrolling the element into the viewport center. `null` when the element
-     * does not exist or has no renderable size (hidden, `display:none`, detached).
+     * Returns document-space bounds as `[left, top, width, height, scrollX, scrollY]`.
+     * The page is physically scrolled first, then the geometry is read again after the
+     * renderer settles. Keeping document and viewport coordinates separate prevents a
+     * scrolled element's Y coordinate from being tapped twice-offset or off-screen.
      */
     private fun elementBounds(wv: WebView, selector: String): FloatArray? {
-        val js = """
+        val scrollJs = """
+            (function() {
+                var el = document.querySelector(${jsQuote(selector)});
+                if (!el) return false;
+                try { el.scrollIntoView({ block: 'center', inline: 'center' }); }
+                catch (e) { try { el.scrollIntoView(); } catch (e2) {} }
+                return true;
+            })()
+        """.trimIndent()
+        if (evaluateJs(scrollJs, DEFAULT_EVAL_TIMEOUT_MS) != "true") return null
+        sleep(TAP_SETTLE_MS)
+        forceCompositorFrame(wv)
+
+        val boundsJs = """
             (function() {
                 var el = document.querySelector(${jsQuote(selector)});
                 if (!el) return null;
-                try { el.scrollIntoView({ block: 'center', inline: 'center' }); }
-                catch (e) { try { el.scrollIntoView(); } catch (e2) {} }
                 var r = el.getBoundingClientRect();
                 if (!r || r.width <= 0 || r.height <= 0) return null;
-                return [r.left, r.top, r.width, r.height];
+                var sx = window.scrollX || window.pageXOffset || 0;
+                var sy = window.scrollY || window.pageYOffset || 0;
+                return [r.left + sx, r.top + sy, r.width, r.height, sx, sy];
             })()
         """.trimIndent()
-        val raw = evaluateJs(js, DEFAULT_EVAL_TIMEOUT_MS) ?: return null
-        val trimmed = raw.trim()
-        if (trimmed.isEmpty() || trimmed == "null" || trimmed == "undefined") return null
-        return try {
-            val arr = JSONArray(trimmed)
-            floatArrayOf(
-                arr.getDouble(0).toFloat(),
-                arr.getDouble(1).toFloat(),
-                arr.getDouble(2).toFloat(),
-                arr.getDouble(3).toFloat(),
-            )
-        } catch (_: Exception) {
-            null
-        }
+        val values = parseFloatArray(evaluateJs(boundsJs, DEFAULT_EVAL_TIMEOUT_MS)) ?: return null
+        return values.takeIf { it.size >= 6 }
     }
 
     /**
@@ -311,17 +313,6 @@ class HeadlessWebViewManager(private val appContext: Context) {
      * of the synthetic (untrusted) DOM events a JS `el.click()` produces.
      */
     private fun dispatchNativeTap(wv: WebView, x: Int, y: Int): Boolean {
-        // Let the page settle any async layout/scroll triggered by the preceding
-        // scrollIntoView + viewport resize before the finger goes down, so the
-        // renderer's hit-test sees the same geometry getBoundingClientRect reported.
-        // This sleep is on the script thread only — the main/UI thread stays free.
-        try {
-            Thread.sleep(TAP_SETTLE_MS)
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-            return false
-        }
-
         val downTime = SystemClock.uptimeMillis()
 
         val downLatch = CountDownLatch(1)
@@ -368,7 +359,13 @@ class HeadlessWebViewManager(private val appContext: Context) {
             }
         }
         if (!awaitLatch(upLatch)) return downRef.get()
-        return downRef.get() || upRef.get()
+        val handled = downRef.get() || upRef.get()
+        if (handled) {
+            forceCompositorFrame(wv)
+            sleep(POST_TAP_SETTLE_MS)
+            forceCompositorFrame(wv)
+        }
+        return handled
     }
 
     /** Blocks the calling (script) thread on [latch] until it opens or the timeout hits. */
@@ -509,28 +506,71 @@ class HeadlessWebViewManager(private val appContext: Context) {
      */
     fun screenshot(path: String, quality: Int): String {
         val wv = webView ?: return ""
+        measureIfNeeded(wv)
+        val metrics = parseFloatArray(
+            evaluateJs(
+                """
+                    (function() {
+                        var d = document.documentElement, b = document.body;
+                        var h = Math.max(d ? d.scrollHeight : 0, d ? d.offsetHeight : 0,
+                            b ? b.scrollHeight : 0, b ? b.offsetHeight : 0,
+                            window.innerHeight || 0);
+                        return [h, window.innerWidth || 0, window.scrollX || 0, window.scrollY || 0];
+                    })()
+                """.trimIndent(),
+                DEFAULT_EVAL_TIMEOUT_MS,
+            ),
+        )
+        val cssHeight = metrics?.getOrNull(0)?.takeIf { it > 0f } ?: DEFAULT_VIEWPORT_HEIGHT.toFloat()
+        val cssWidth = metrics?.getOrNull(1)?.takeIf { it > 0f } ?: DEFAULT_VIEWPORT_WIDTH.toFloat()
+        val documentScrollX = metrics?.getOrNull(2)?.roundToInt() ?: 0
+        val documentScrollY = metrics?.getOrNull(3)?.roundToInt() ?: 0
+        val captureWidth = wv.width.takeIf { it > 0 } ?: DEFAULT_VIEWPORT_WIDTH
+        val captureHeight = (cssHeight * captureWidth / cssWidth).roundToInt()
+            .coerceIn(DEFAULT_VIEWPORT_HEIGHT, MAX_SCREENSHOT_HEIGHT)
+
+        evaluateJs("window.scrollTo(0, 0); true", DEFAULT_EVAL_TIMEOUT_MS)
         val latch = CountDownLatch(1)
         val ref = AtomicReference<Bitmap?>()
         onMain {
+            val oldWidth = wv.width.takeIf { it > 0 } ?: DEFAULT_VIEWPORT_WIDTH
+            val oldHeight = wv.height.takeIf { it > 0 } ?: DEFAULT_VIEWPORT_HEIGHT
+            val oldViewScrollX = wv.scrollX
+            val oldViewScrollY = wv.scrollY
             try {
-                if (wv.width <= 0 || wv.height <= 0) {
-                    // A never-attached WebView has zero size — give it the default
-                    // viewport so drawing produces a real, full-page image.
-                    wv.measure(
-                        View.MeasureSpec.makeMeasureSpec(DEFAULT_VIEWPORT_WIDTH, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(DEFAULT_VIEWPORT_HEIGHT, View.MeasureSpec.EXACTLY),
-                    )
-                    wv.layout(0, 0, wv.measuredWidth, wv.measuredHeight)
-                }
-                val bitmap = Bitmap.createBitmap(wv.width, wv.height, Bitmap.Config.ARGB_8888)
+                wv.measure(
+                    View.MeasureSpec.makeMeasureSpec(captureWidth, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(captureHeight, View.MeasureSpec.EXACTLY),
+                )
+                wv.layout(0, 0, captureWidth, captureHeight)
+                wv.scrollTo(0, 0)
+                wv.invalidate()
+                val bitmap = Bitmap.createBitmap(captureWidth, captureHeight, Bitmap.Config.ARGB_8888)
                 wv.draw(Canvas(bitmap))
                 ref.set(bitmap)
             } catch (_: Throwable) {
                 ref.set(null)
+            } finally {
+                try {
+                    wv.measure(
+                        View.MeasureSpec.makeMeasureSpec(oldWidth, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(oldHeight, View.MeasureSpec.EXACTLY),
+                    )
+                    wv.layout(0, 0, oldWidth, oldHeight)
+                    wv.scrollTo(oldViewScrollX, oldViewScrollY)
+                    wv.invalidate()
+                } catch (_: Throwable) {
+                    // Preserve the screenshot result even if restoring the detached view fails.
+                }
             }
             latch.countDown()
         }
         if (!latch.await(DEFAULT_EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS)) return ""
+        evaluateJs(
+            "window.scrollTo($documentScrollX, $documentScrollY); true",
+            DEFAULT_EVAL_TIMEOUT_MS,
+        )
+        forceCompositorFrame(wv)
         val bitmap = ref.get() ?: return ""
         return try {
             val dir = File(appContext.cacheDir, SCREENSHOT_DIR).apply { mkdirs() }
@@ -540,10 +580,11 @@ class HeadlessWebViewManager(private val appContext: Context) {
                 File(dir, "shot_${System.currentTimeMillis()}.png")
             }
             FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, quality, out) }
-            bitmap.recycle()
             file.absolutePath
         } catch (_: Throwable) {
             ""
+        } finally {
+            bitmap.recycle()
         }
     }
 
@@ -656,6 +697,33 @@ class HeadlessWebViewManager(private val appContext: Context) {
         return ref.get()
     }
 
+    /** Forces a frame for the detached WebView so scroll/SPA state reaches Chromium. */
+    private fun forceCompositorFrame(wv: WebView) {
+        val latch = CountDownLatch(1)
+        onMain {
+            try {
+                wv.invalidate()
+                drawCompositorFrame(wv)
+            } finally {
+                latch.countDown()
+            }
+        }
+        awaitLatch(latch)
+    }
+
+    private fun drawCompositorFrame(wv: WebView) {
+        if (wv.width <= 0 || wv.height <= 0) return
+        var scratch: Bitmap? = null
+        try {
+            scratch = Bitmap.createBitmap(wv.width, wv.height, Bitmap.Config.ARGB_8888)
+            wv.draw(Canvas(scratch))
+        } catch (_: Throwable) {
+            // Best-effort: invalidation and the following DOM poll can still settle it.
+        } finally {
+            scratch?.recycle()
+        }
+    }
+
     /** Runs [js] on the main thread and returns the callback value, or null on failure. */
     private fun evaluateJs(js: String, timeoutMs: Long): String? {
         val wv = webView ?: ensureWebView() ?: return null
@@ -684,16 +752,28 @@ class HeadlessWebViewManager(private val appContext: Context) {
     }
 
     private companion object {
+        val wholeDocumentDrawingEnabled = AtomicBoolean(false)
         const val DEFAULT_EVAL_TIMEOUT_MS = 5_000L
         const val POLL_INTERVAL_MS = 150L
         const val SCREENSHOT_DIR = "browser_screenshots"
         const val DEFAULT_VIEWPORT_WIDTH = 1366
         const val DEFAULT_VIEWPORT_HEIGHT = 768
+        const val MAX_SCREENSHOT_HEIGHT = 5_000
         const val TAP_GAP_MS = 80L
         const val TAP_SETTLE_MS = 120L
+        const val POST_TAP_SETTLE_MS = 250L
         const val VIEWPORT_SETTLE_TRIES = 3
         const val MIN_TAP_SCALE = 0.1f
         const val MAX_TAP_SCALE = 10f
+
+        fun enableWholeDocumentDrawing() {
+            if (!wholeDocumentDrawingEnabled.compareAndSet(false, true)) return
+            try {
+                WebView.enableSlowWholeDocumentDraw()
+            } catch (_: Throwable) {
+                // Must be called before the first WebView; older/already-started providers may reject it.
+            }
+        }
     }
 }
 

@@ -107,7 +107,7 @@ class CapCutNativeClickTest {
             // Email-form visibility probe (offsetParent) → form appeared.
             script.contains("offsetParent") -> {
                 calls += "eval"
-                """{"email_inputs":1,"hasEmailInput":true}"""
+                """{"hasEmailInput":true,"emailInputs":[{"type":"email","placeholder":"Email","name":"email","id":"email"}],"continueButtons":["continue"],"totalEmailInputs":1,"totalPasswordInputs":1}"""
             }
             script.contains("otp") -> {
                 calls += "eval"

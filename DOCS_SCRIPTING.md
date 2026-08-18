@@ -824,13 +824,16 @@ mengabaikan klik sintetis dari JavaScript. Penyebabnya:
 Solusinya, `page.click(selector)` di `HeadlessWebViewManager` sekarang melakukan
 **tap native**:
 
-1. WebView di-*layout* ke viewport default 1366×768 (sama seperti screenshot) dan
+1. WebView di-*layout* ke viewport interaksi default 1366×768 dan
    dipaksa *render* satu frame agar renderer memakai ukuran baru.
 2. WebView headless di-set menjadi **aktif**: *enabled, focusable, clickable*,
    `requestFocus` + `onWindowFocusChanged(true)` — karena view yang tidak pernah
    di-attach ke window tidak punya fokus/window-focus, sebagian jalur input internal
    bisa menolak event sintetis.
-3. Elemen dicari via `getBoundingClientRect` + `scrollIntoView({block:'center'})`, dan
+3. Elemen dicari lalu halaman di-scroll fisik via `scrollIntoView({block:'center'})`.
+   Bridge menyimpan koordinat dokumen (`rect.top + window.scrollY`) dan posisi scroll,
+   menunggu renderer stabil, lalu mengubahnya kembali menjadi koordinat viewport
+   (`documentY - scrollY`). `window.innerWidth/Height` dipoll sampai stabil dan
    `window.innerWidth/Height` dipoll sampai stabil (renderer menyerap ukuran viewport
    baru) untuk menghitung **rasio CSS-px → view-px**:
    `scaleX = viewWidth / window.innerWidth`, `scaleY = viewHeight / window.innerHeight`.
@@ -841,12 +844,33 @@ Solusinya, `page.click(selector)` di `HeadlessWebViewManager` sekarang melakukan
 4. Pasangan `MotionEvent` **`ACTION_DOWN` → jeda ~80ms → `ACTION_UP`** dikirim lewat
    `WebView.dispatchTouchEvent` di pusat elemen (sumber `TOUCHSCREEN`), setelah jeda
    *settle* ~120ms agar layout/scroll async dari `scrollIntoView` selesai.
-5. Halaman melihat rangkaian event *trusted* yang sah: `touchstart/touchend →
+5. Setelah tap, WebView di-`invalidate`, compositor dipaksa menggambar frame baru, dan
+   bridge memberi jeda singkat agar perubahan state React/Vue terlihat oleh perintah
+   skrip berikutnya. Halaman melihat rangkaian event *trusted*: `touchstart/touchend →
    pointerdown/pointerup → mousedown/mouseup → click`.
 
 Bila elemen tidak ditemukan atau tap ditolak, fallback JS (urutan
 `pointer/mouse/click`) tetap dipakai sehingga metode tidak pernah gagal diam-diam.
 `page.locator(selector).click()` juga memakai jalur native yang sama.
+
+### 7.2b Screenshot Full-Page (Tahap 33)
+
+`page.screenshot()` tidak lagi menangkap viewport 1366×768 saja. Bridge membaca tinggi
+konten dari `document.documentElement/body.scrollHeight`, mengonversi CSS pixel ke
+ukuran view, lalu sementara me-*layout* WebView ke tinggi dokumen sebelum menggambar
+`Canvas`. `WebView.enableSlowWholeDocumentDraw()` diaktifkan secara best-effort agar
+tile di luar viewport tidak menjadi putih. Setelah file PNG selesai, ukuran viewport
+dan posisi scroll lama dipulihkan sehingga klik/scroll berikutnya tetap konsisten.
+
+Untuk mencegah `OutOfMemoryError`, tinggi bitmap dibatasi **5000 px**. Halaman yang lebih
+panjang tetap menghasilkan gambar dari bagian atas hingga batas tersebut, bukan bitmap
+tak terbatas. Pada SPA, tunggu perubahan DOM secara logis sesudah klik:
+
+```javascript
+page.click('#continue');
+page.waitForSelector('input[type="email"]', { timeout: 6000 });
+var path = page.screenshot({ quality: 90 });
+```
 
 ### 7.3 Objek Global `page`
 
