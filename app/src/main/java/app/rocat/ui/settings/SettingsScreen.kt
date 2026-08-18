@@ -10,12 +10,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
@@ -29,11 +35,13 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +60,7 @@ import app.rocat.i18n.AppLanguage
 import app.rocat.i18n.LocalStrings
 import app.rocat.i18n.StringKey
 import app.rocat.i18n.stringResource
+import app.rocat.settings.ThemeMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,30 +114,39 @@ fun SettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState()),
         ) {
-            SectionHeader(strings[StringKey.language])
-            LanguageRow(
-                languages = AppLanguage.entries,
-                selected = state.language,
-                onSelect = viewModel::setLanguage,
+            SectionHeader(strings[StringKey.appearance])
+            ThemePreviewRow(
+                selected = state.themeMode,
+                onSelect = viewModel::setThemeMode,
             )
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
-            SectionHeader(strings[StringKey.storage])
-            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+            SectionHeader(strings[StringKey.language])
+            ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                 ) {
-                    // Ikon di kiri
-                    Icon(Icons.Filled.Storage, contentDescription = null)
-                    
-                    // Area Teks (menggunakan weight agar mengambil sisa ruang dan tidak tergencet)
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 16.dp)
-                    ) {
+                    Icon(Icons.Filled.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(16.dp))
+                    LanguageRow(
+                        languages = AppLanguage.entries,
+                        selected = state.language,
+                        onSelect = viewModel::setLanguage,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+            SectionHeader(strings[StringKey.storage])
+            ElevatedCard(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Column(modifier = Modifier.weight(1f).padding(start = 16.dp)) {
                         Text(strings[StringKey.storageStatus], style = MaterialTheme.typography.titleSmall)
                         Text(
                             text = state.storageName.ifBlank {
@@ -137,10 +155,12 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        }
                     }
-
-                    // Tombol di kanan
-                    OutlinedButton(onClick = { folderLauncher.launch(null) }) {
+                    OutlinedButton(
+                        onClick = { folderLauncher.launch(null) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    ) {
                         Text(strings[StringKey.changeStorage])
                     }
                 }
@@ -157,6 +177,19 @@ fun SettingsScreen(
                 customDnsUrl = state.customDnsUrl,
                 onCustomDnsUrlChange = viewModel::setCustomDnsUrl,
             )
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            SectionHeader(strings[StringKey.developerOptions])
+            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                ListItem(
+                    headlineContent = { Text(strings[StringKey.webViewDebugging]) },
+                    supportingContent = { Text(strings[StringKey.webViewDebuggingBody]) },
+                    leadingContent = { Icon(Icons.Filled.Palette, contentDescription = null) },
+                    trailingContent = {
+                        Switch(checked = state.webViewDebugging, onCheckedChange = viewModel::setWebViewDebugging)
+                    },
+                )
+            }
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
@@ -203,6 +236,7 @@ private fun LanguageRow(
     languages: List<AppLanguage>,
     selected: AppLanguage,
     onSelect: (AppLanguage) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val strings = LocalStrings.current
@@ -210,7 +244,7 @@ private fun LanguageRow(
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = it },
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier = modifier,
     ) {
         OutlinedTextField(
             value = strings.languageLabel(selected),
@@ -229,6 +263,43 @@ private fun LanguageRow(
                         expanded = false
                     },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePreviewRow(selected: ThemeMode, onSelect: (ThemeMode) -> Unit) {
+    val strings = LocalStrings.current
+    Row(
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        listOf(
+            Triple(ThemeMode.SYSTEM, StringKey.themeSystem, Icons.Filled.SettingsBrightness),
+            Triple(ThemeMode.LIGHT, StringKey.themeLight, Icons.Filled.WbSunny),
+            Triple(ThemeMode.DARK, StringKey.themeDark, Icons.Filled.DarkMode),
+        ).forEach { (mode, label, icon) ->
+            val active = selected == mode
+            Card(
+                onClick = { onSelect(mode) },
+                modifier = Modifier.weight(1f).height(88.dp),
+                colors = androidx.compose.material3.CardDefaults.cardColors(
+                    containerColor = if (active) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                elevation = androidx.compose.material3.CardDefaults.cardElevation(
+                    defaultElevation = if (active) 4.dp else 1.dp,
+                ),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Icon(icon, contentDescription = null)
+                    Text(strings[label], style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
+                }
             }
         }
     }

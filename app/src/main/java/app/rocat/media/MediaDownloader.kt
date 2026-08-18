@@ -6,7 +6,6 @@ import app.rocat.storage.StorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
-import java.io.ByteArrayOutputStream
 import java.net.URLDecoder
 import java.util.Locale
 
@@ -41,13 +40,29 @@ import java.util.Locale
         onProgress: (Float) -> Unit = {},
     ): String? = withContext(Dispatchers.IO) {
         if (folder == null) return@withContext null
-        val bytes = fetchBytes(url, headers, onProgress) ?: return@withContext null
-        storageManager.saveFileToScrapeFolder(
-            folder = folder,
-            fileName = fileName,
-            mimeType = mimeType,
-            content = bytes,
-        )?.toString()
+        val request = Request.Builder().url(url).apply {
+            headers.forEach { (name, value) -> addHeader(name, value) }
+        }.build()
+        runCatching {
+            networkHelper.client().newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@runCatching null
+                val body = response.body ?: return@runCatching null
+                val total = body.contentLength().coerceAtLeast(0L)
+                storageManager.saveStreamToScrapeFolder(folder, fileName, mimeType) { output ->
+                    body.byteStream().use { input ->
+                        val chunk = ByteArray(DEFAULT_CHUNK_SIZE)
+                        var received = 0L
+                        while (true) {
+                            val read = input.read(chunk)
+                            if (read < 0) break
+                            output.write(chunk, 0, read)
+                            received += read
+                            if (total > 0) onProgress(received.toFloat() / total.toFloat())
+                        }
+                    }
+                }?.toString()
+            }
+        }.getOrNull()
     }
 
     /**
@@ -64,30 +79,6 @@ import java.util.Locale
         val fileName = inferFileName(url, mimeType)
         return download(url, folder, fileName, mimeType, headers, onProgress)
     }
-
-    /** Streams the whole body of [url] into memory, reporting download progress. */
-    private fun fetchBytes(url: String, headers: Map<String, String>, onProgress: (Float) -> Unit): ByteArray? = runCatching {
-        val request = Request.Builder().url(url).apply {
-            headers.forEach { (name, value) -> addHeader(name, value) }
-        }.build()
-        networkHelper.client().newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@runCatching null
-            val body = response.body ?: return@runCatching null
-            val total = body.contentLength().coerceAtLeast(0L)
-            val buffer = ByteArrayOutputStream()
-            val sink = body.byteStream()
-            val chunk = ByteArray(DEFAULT_CHUNK_SIZE)
-            var received = 0L
-            while (true) {
-                val read = sink.read(chunk)
-                if (read < 0) break
-                buffer.write(chunk, 0, read)
-                received += read
-                if (total > 0) onProgress(received.toFloat() / total.toFloat())
-            }
-            buffer.toByteArray()
-        }
-    }.getOrNull()
 
     /**
      * Best-effort file name for [url]: last non-empty path segment, with a MIME-based

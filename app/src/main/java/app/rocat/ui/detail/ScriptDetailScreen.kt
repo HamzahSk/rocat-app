@@ -19,6 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.filled.Redo
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -44,6 +47,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.rocat.i18n.StringKey
@@ -193,6 +202,11 @@ private fun MatchesCard(script: Script) {
 private fun CodeSection(script: Script, viewModel: ScriptDetailViewModel) {
     var editing by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf(script.source) }
+    var undo by remember { mutableStateOf(emptyList<String>()) }
+    var redo by remember { mutableStateOf(emptyList<String>()) }
+    val keywordColor = MaterialTheme.colorScheme.primary
+    val stringColor = MaterialTheme.colorScheme.tertiary
+    val commentColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     Card(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -211,12 +225,39 @@ private fun CodeSection(script: Script, viewModel: ScriptDetailViewModel) {
             HorizontalDivider()
 
             if (editing) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                    IconButton(onClick = { if (undo.isNotEmpty()) { redo = redo + draft; draft = undo.last(); undo = undo.dropLast(1) } }, enabled = undo.isNotEmpty()) {
+                        Icon(Icons.Filled.Undo, contentDescription = stringResource(StringKey.undo))
+                    }
+                    IconButton(onClick = { if (redo.isNotEmpty()) { undo = undo + draft; draft = redo.last(); redo = redo.dropLast(1) } }, enabled = redo.isNotEmpty()) {
+                        Icon(Icons.Filled.Redo, contentDescription = stringResource(StringKey.redo))
+                    }
+                    OutlinedButton(onClick = { undo = undo + draft; draft = formatJavaScript(draft); redo = emptyList() }) {
+                        Icon(Icons.Filled.AutoFixHigh, contentDescription = null)
+                        Spacer(Modifier.width(6.dp)); Text(stringResource(StringKey.format))
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Text(
+                        text = (1..draft.lineSequence().count()).joinToString("\n"),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(top = 16.dp, end = 8.dp),
+                    )
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { value ->
+                            if (value != draft) undo = (undo + draft).takeLast(100)
+                            draft = value
+                            redo = emptyList()
+                        },
+                        modifier = Modifier.weight(1f).heightIn(min = 280.dp),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        visualTransformation = remember(keywordColor, stringColor, commentColor) {
+                            JavaScriptHighlighting(keywordColor, stringColor, commentColor)
+                        },
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { viewModel.saveSource(draft) { editing = false } }) {
@@ -235,4 +276,34 @@ private fun CodeSection(script: Script, viewModel: ScriptDetailViewModel) {
             }
         }
     }
+}
+
+private class JavaScriptHighlighting(
+    private val keywordColor: Color,
+    private val stringColor: Color,
+    private val commentColor: Color,
+) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val builder = AnnotatedString.Builder(text)
+        Regex("\\b(function|var|let|const|if|else|for|while|return|new|try|catch|throw|true|false|null|undefined)\\b")
+            .findAll(text.text).forEach { builder.addStyle(SpanStyle(color = keywordColor), it.range.first, it.range.last + 1) }
+        Regex("(['\"])(?:\\\\.|(?!\\1).)*\\1").findAll(text.text)
+            .forEach { builder.addStyle(SpanStyle(color = stringColor), it.range.first, it.range.last + 1) }
+        Regex("//.*|/\\*[\\s\\S]*?\\*/").findAll(text.text)
+            .forEach { builder.addStyle(SpanStyle(color = commentColor), it.range.first, it.range.last + 1) }
+        return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
+    }
+}
+
+private fun formatJavaScript(source: String): String {
+    var indent = 0
+    return source.lines().joinToString("\n") { raw ->
+        val line = raw.trim()
+        if (line.startsWith("}")) indent = (indent - 1).coerceAtLeast(0)
+        val formatted = "    ".repeat(indent) + line
+        val opens = line.count { it == '{' }
+        val closes = line.count { it == '}' } - if (line.startsWith("}")) 1 else 0
+        indent = (indent + opens - closes).coerceAtLeast(0)
+        formatted
+    }.trimEnd()
 }

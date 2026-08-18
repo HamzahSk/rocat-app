@@ -1094,3 +1094,16 @@ function openInteractive(inputs) {
 > debug stream dengan `addJsonLog`, dan penanganan HLS sungguhan (decode base64/
 > ekstraksi `html5player` via `innerHtml` → master `.m3u8` → pilih varian →
 > `RoCatUI.addVideo(..., true, true)`).
+# Fase 34: Penyimpanan media dan screenshot
+
+- `RoCatUI.addImage(url, title, true, headers)` menampilkan tombol unduh. Unduhan memakai
+  OkHttp bersama milik aplikasi, meneruskan `headers`, cookie browser, dan User-Agent,
+  lalu melakukan streaming langsung ke `[Direktori utama]/Scrapes/<scriptId>/` melalui
+  Storage Access Framework. File tidak ditampung penuh di memori.
+- Operasi penyimpanan SAF seperti `RoCatUI.save(...)` mengembalikan URI `content://` yang
+  dapat dibuka lewat `ContentResolver`; URI tersebut bukan path filesystem biasa.
+- `page.screenshot(path?, quality?)` menghasilkan PNG. Tanpa `path`, file ditulis dengan
+  nama unik `shot_<timestamp>.png` di cache aplikasi dan mengembalikan absolute path.
+  Tinggi full-page dibatasi agar bitmap halaman sangat panjang tidak menyebabkan OOM.
+- Jika pengguna mengganti direktori utama di Pengaturan, seluruh output scrape berikutnya
+  otomatis menggunakan grant SAF baru. Skrip tidak perlu meminta izin storage legacy.

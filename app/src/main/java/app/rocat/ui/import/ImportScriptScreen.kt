@@ -1,5 +1,10 @@
 package app.rocat.ui.import
 
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +20,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,14 +36,22 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.rocat.di.AppViewModelFactory
 import app.rocat.i18n.StringKey
@@ -47,6 +64,27 @@ fun ImportScriptScreen(
     viewModel: ImportScriptViewModel = viewModel(factory = AppViewModelFactory),
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val source = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull()
+            if (!source.isNullOrBlank()) {
+                viewModel.onSourceChange(source)
+                selectedTab = 1
+            } else {
+                Toast.makeText(context, "Unable to read script file", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun pasteInto(update: (String) -> Unit) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+        if (text.isNotBlank()) update(text)
+    }
 
     Scaffold(
         topBar = {
@@ -82,70 +120,69 @@ fun ImportScriptScreen(
                 )
             }
 
-            Text(
-                text = stringResource(StringKey.importFromUrl),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 16.dp, top = 16.dp),
-            )
-            Text(
-                text = stringResource(StringKey.importFromUrlBody),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            OutlinedTextField(
-                value = state.url,
-                onValueChange = viewModel::onUrlChange,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                label = { Text(stringResource(StringKey.scriptUrl)) },
-                singleLine = true,
-            )
-            Button(
-                onClick = { viewModel.importFromUrl { onBack() } },
-                enabled = !state.busy,
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-            ) {
-                if (state.busy) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                } else {
-                    Text(stringResource(StringKey.fetchImport))
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            ) {
-                Text(
-                    stringResource(StringKey.pasteSource),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
+            PrimaryTabRow(selectedTabIndex = selectedTab, modifier = Modifier.fillMaxWidth()) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text(stringResource(StringKey.importFromUrl)) },
+                    icon = { Icon(Icons.Filled.Link, contentDescription = null) },
                 )
-                OutlinedButton(onClick = viewModel::loadCanvasExample) {
-                    Text(stringResource(StringKey.canvasDemo))
-                }
-                Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = viewModel::loadExample) {
-                    Text(stringResource(StringKey.loadExample))
-                }
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text(stringResource(StringKey.pasteSource)) },
+                    icon = { Icon(Icons.Filled.Code, contentDescription = null) },
+                )
             }
-            OutlinedTextField(
-                value = state.source,
-                onValueChange = viewModel::onSourceChange,
-                modifier = Modifier.fillMaxWidth().padding(16.dp).heightIn(min = 220.dp),
-                label = { Text(stringResource(StringKey.scriptSource)) },
-                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-            )
-            Button(
-                onClick = { viewModel.importFromSource { onBack() } },
-                enabled = !state.busy,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            ) {
-                Text(stringResource(StringKey.importSource))
+
+            ElevatedCard(Modifier.fillMaxWidth().padding(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    if (selectedTab == 0) {
+                        Text(stringResource(StringKey.importFromUrlBody), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedTextField(
+                            value = state.url,
+                            onValueChange = viewModel::onUrlChange,
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                            label = { Text(stringResource(StringKey.scriptUrl)) },
+                            trailingIcon = {
+                                IconButton(onClick = { pasteInto(viewModel::onUrlChange) }) {
+                                    Icon(Icons.Filled.ContentPaste, contentDescription = stringResource(StringKey.paste))
+                                }
+                            },
+                            singleLine = true,
+                        )
+                        Button(onClick = { viewModel.importFromUrl { onBack() } }, enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                            if (state.busy) CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                            else Text(stringResource(StringKey.fetchImport))
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            FilledTonalButton(onClick = { pasteInto(viewModel::onSourceChange) }, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Filled.ContentPaste, contentDescription = null)
+                                Spacer(Modifier.width(8.dp)); Text(stringResource(StringKey.paste))
+                            }
+                            OutlinedButton(onClick = { fileLauncher.launch(arrayOf("application/javascript", "text/javascript", "text/plain")) }, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                                Spacer(Modifier.width(8.dp)); Text(stringResource(StringKey.chooseFile))
+                            }
+                        }
+                        OutlinedTextField(
+                            value = state.source,
+                            onValueChange = viewModel::onSourceChange,
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 260.dp),
+                            label = { Text(stringResource(StringKey.scriptSource)) },
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            OutlinedButton(onClick = viewModel::loadCanvasExample, modifier = Modifier.weight(1f)) { Text(stringResource(StringKey.canvasDemo)) }
+                            OutlinedButton(onClick = viewModel::loadExample, modifier = Modifier.weight(1f)) { Text(stringResource(StringKey.loadExample)) }
+                        }
+                        Button(onClick = { viewModel.importFromSource { onBack() } }, enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) { Text(stringResource(StringKey.importSource)) }
+                    }
+                }
             }
             Spacer(Modifier.height(24.dp))
         }

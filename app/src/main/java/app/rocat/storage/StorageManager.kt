@@ -157,6 +157,25 @@ class StorageManager(
         }.getOrNull()
     }
 
+    /** Streams into SAF without buffering the complete file in memory. */
+    suspend fun saveStreamToScrapeFolder(
+        folder: DocumentFile?,
+        fileName: String,
+        mimeType: String,
+        writer: (OutputStream) -> Unit,
+    ): Uri? = withContext(Dispatchers.IO) {
+        if (folder == null || !folder.isDirectory || !folder.canWrite()) return@withContext null
+        val safeName = sanitizeFileName(fileName).takeIf { it.isNotBlank() } ?: return@withContext null
+        val target = folder.findFile(safeName) ?: folder.createFile(mimeType, safeName) ?: return@withContext null
+        runCatching {
+            openOutputStream(target.uri)?.use { output ->
+                writer(output)
+                output.flush()
+            } ?: return@withContext null
+            target.uri
+        }.getOrNull()
+    }
+
     /** Convenience overload writing a UTF-8 [String] as plain text. */
     suspend fun saveFileToScrapeFolder(
         folder: DocumentFile?,

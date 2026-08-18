@@ -32,6 +32,21 @@ class SettingsRepository(context: Context) {
     /** The SAF tree URI of the main storage folder, or null until the user picks one. */
     val storageUri: StateFlow<Uri?> = _storageUri.asStateFlow()
 
+    private val _themeMode = MutableStateFlow(
+        runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME_MODE, null) ?: "") }
+            .getOrDefault(ThemeMode.SYSTEM),
+    )
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    fun setThemeMode(value: ThemeMode) {
+        _themeMode.value = value
+        prefs.edit().putString(KEY_THEME_MODE, value.name).apply()
+    }
+
+    var webViewDebugging: Boolean
+        get() = prefs.getBoolean(KEY_WEBVIEW_DEBUGGING, false)
+        set(value) = prefs.edit().putBoolean(KEY_WEBVIEW_DEBUGGING, value).apply()
+
     /**
      * Persists (or clears) the main storage directory. Updating the [StateFlow] lets the
      * first-launch gate (RoCatApp) and any storage observer recompose immediately without
@@ -83,5 +98,9 @@ class SettingsRepository(context: Context) {
         private const val KEY_DNS_MODE = "dns_mode"
         private const val KEY_CUSTOM_DNS_URL = "custom_dns_url"
         private const val KEY_DESKTOP_MODE = "desktop_mode"
+        private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_WEBVIEW_DEBUGGING = "webview_debugging"
     }
 }
+
+enum class ThemeMode { SYSTEM, LIGHT, DARK }

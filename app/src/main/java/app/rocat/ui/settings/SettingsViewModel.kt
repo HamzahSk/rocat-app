@@ -14,6 +14,7 @@ import app.rocat.i18n.AppLanguage
 import app.rocat.i18n.I18nProvider
 import app.rocat.i18n.StringKey
 import app.rocat.settings.SettingsRepository
+import app.rocat.settings.ThemeMode
 import app.rocat.storage.StorageManager
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +46,8 @@ class SettingsViewModel(
         val userAgent: String = "",
         val dnsMode: DnsMode = DnsMode.SYSTEM,
         val customDnsUrl: String = "",
+        val themeMode: ThemeMode = ThemeMode.SYSTEM,
+        val webViewDebugging: Boolean = false,
     )
 
     val settingsState: StateFlow<State> = combine(
@@ -65,11 +68,24 @@ class SettingsViewModel(
             userAgent = settings.userAgent,
             dnsMode = settings.dnsMode,
             customDnsUrl = settings.customDnsUrl,
+            themeMode = settings.themeMode.value,
+            webViewDebugging = settings.webViewDebugging,
         )
     }
 
     fun setLanguage(language: AppLanguage) {
         i18nProvider.setLanguage(language)
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        settings.setThemeMode(mode)
+        mutableState.value = mutableState.value.copy(themeMode = mode)
+    }
+
+    fun setWebViewDebugging(enabled: Boolean) {
+        settings.webViewDebugging = enabled
+        WebView.setWebContentsDebuggingEnabled(app.rocat.BuildConfig.DEBUG || enabled)
+        mutableState.value = mutableState.value.copy(webViewDebugging = enabled)
     }
 
     // ---- Tahap 20: Network settings ----

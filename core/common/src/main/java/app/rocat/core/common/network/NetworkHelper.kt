@@ -124,7 +124,7 @@ class NetworkHelper(
          * preference so servers/WAFs treat requests as coming from a real browser.
          */
         const val DEFAULT_USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36"
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36"
     }
 }
 

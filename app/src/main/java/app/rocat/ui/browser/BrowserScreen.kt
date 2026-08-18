@@ -2,9 +2,11 @@ package app.rocat.ui.browser
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.DownloadManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.os.Environment
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
@@ -19,6 +21,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.CookieManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -116,8 +119,6 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserScreen(initialUrl: String? = null) {
-    // Required for diagnosing SPA hydration/rendering failures through Chrome DevTools.
-    WebView.setWebContentsDebuggingEnabled(true)
     val viewModel: BrowserViewModel = viewModel(factory = AppViewModelFactory)
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -144,6 +145,8 @@ fun BrowserScreen(initialUrl: String? = null) {
     val sslDialogMessage = stringResource(StringKey.insecureConnectionMessage)
     val sslProceedLabel = stringResource(StringKey.proceed)
     val sslCancelLabel = stringResource(StringKey.cancel)
+    val downloadTitle = stringResource(StringKey.downloadFile)
+    val downloadMessage = stringResource(StringKey.downloadConfirm)
 
     fun navState(): BrowserViewModel.NavigationState =
         BrowserViewModel.NavigationState(
@@ -443,16 +446,32 @@ fun BrowserScreen(initialUrl: String? = null) {
                                 // Match sweb-master's download hook. Keep the WebView
                                 // session/cookies intact and hand binary downloads to the
                                 // platform handler instead of silently leaving the page.
-                                view.setDownloadListener { url, _, _, mimeType, _ ->
-                                    runCatching {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW)
-                                                .setDataAndType(Uri.parse(url), mimeType ?: "*/*")
-                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                                        )
-                                    }.onFailure {
-                                        Toast.makeText(context, "Unable to open download", Toast.LENGTH_SHORT).show()
-                                    }
+                                view.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+                                    val uri = Uri.parse(url)
+                                    val guessed = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
+                                    val size = if (contentLength > 0) " (${contentLength / 1024} KB)" else ""
+                                    AlertDialog.Builder(context)
+                                        .setTitle(downloadTitle)
+                                        .setMessage(String.format(downloadMessage, guessed + size))
+                                        .setNegativeButton(sslCancelLabel, null)
+                                        .setPositiveButton(downloadTitle) { _, _ ->
+                                            val cookie = CookieManager.getInstance().getCookie(url).orEmpty()
+                                            val request = DownloadManager.Request(uri)
+                                                .setTitle(guessed)
+                                                .setDescription(uri.host.orEmpty())
+                                                .setMimeType(mimeType ?: "application/octet-stream")
+                                                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "RoCat/$guessed")
+                                                .addRequestHeader("User-Agent", userAgent ?: view.settings.userAgentString)
+                                            if (cookie.isNotBlank()) request.addRequestHeader("Cookie", cookie)
+                                            runCatching {
+                                                (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+                                                Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
+                                            }.onFailure {
+                                                Toast.makeText(context, "Unable to start download", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        .show()
                                 }
                                 webView = view
                                 lastAppliedNonce = state.loadNonce
