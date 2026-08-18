@@ -80,7 +80,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
-import app.rocat.core.common.network.NetworkHelper
 import app.rocat.core.common.util.WebViewUtil
 import app.rocat.di.AppViewModelFactory
 import app.rocat.i18n.StringKey
@@ -410,15 +409,29 @@ fun BrowserScreen(initialUrl: String? = null) {
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
                             WebView(ctx).also { view ->
-                                // Tahap 28.2: the browser presents the app's shared network
-                                // identity (NetworkHelper.DEFAULT_USER_AGENT) so OkHttp /
-                                // scripts and the WebView agree, while sweb-master's
-                                // proven JS-engine settings (WebViewUtil.setDefaultSettings)
-                                // keep SPA / heavy-JS pages from rendering blank.
-                                WebViewUtil.setDefaultSettings(view, NetworkHelper.DEFAULT_USER_AGENT)
-                                WebViewUtil.applyDesktopMode(view, state.desktopMode)
+                                // Tahap 32: use the installed WebView's native mobile UA,
+                                // matching sweb-master and avoiding a synthetic Chrome
+                                // version that can trip anti-bot UA consistency checks.
+                                WebViewUtil.setDefaultSettings(view)
+                                if (state.desktopMode) {
+                                    WebViewUtil.applyDesktopMode(view, true)
+                                }
                                 view.webViewClient = webViewClient
                                 view.webChromeClient = chromeClient
+                                // Match sweb-master's download hook. Keep the WebView
+                                // session/cookies intact and hand binary downloads to the
+                                // platform handler instead of silently leaving the page.
+                                view.setDownloadListener { url, _, _, mimeType, _ ->
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW)
+                                                .setDataAndType(Uri.parse(url), mimeType ?: "*/*")
+                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                        )
+                                    }.onFailure {
+                                        Toast.makeText(context, "Unable to open download", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                                 webView = view
                                 lastAppliedNonce = state.loadNonce
                                 viewModel.refreshNavState(navState())

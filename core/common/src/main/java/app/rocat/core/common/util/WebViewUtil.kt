@@ -61,18 +61,18 @@ object WebViewUtil {
      *   `WebChromeClient.onCreateWindow`, the documented safest behavior that blocks
      *   `target="_blank"` popups while keeping the main frame rendering (§"Manage
      *   windows").
-     * - Wide-viewport rendering, zoom and third-party cookies are supported; the browser
-     *   presents the app's shared network identity ([NetworkHelper.DEFAULT_USER_AGENT], a
-     *   modern Chrome UA exactly like sweb-master's hardcoded one) so OkHttp / scripts and
-     *   the WebView see the same identity.
+     * - Wide-viewport rendering, zoom and third-party cookies are supported. By default
+     *   the installed WebView UA is retained, matching sweb-master; callers that require
+     *   a shared scraper identity may still pass an explicit User-Agent.
      */
     @SuppressLint("SetJavaScriptEnabled")
     fun setDefaultSettings(
         webView: WebView,
-        userAgent: String = NetworkHelper.DEFAULT_USER_AGENT,
+        userAgent: String? = null,
     ) {
         with(webView.settings) {
             javaScriptEnabled = true
+            javaScriptCanOpenWindowsAutomatically = true
             domStorageEnabled = true
             databaseEnabled = true
             // Tahap 28.2 (sweb-master `createWebView`): the reference browser enables the
@@ -89,7 +89,9 @@ object WebViewUtil {
             useWideViewPort = true
             loadWithOverviewMode = true
             cacheMode = WebSettings.LOAD_DEFAULT
-            userAgentString = userAgent
+            // sweb-master leaves the WebView UA untouched. A device WebView UA is
+            // less likely to trigger anti-bot rules than a synthetic Chrome version.
+            if (!userAgent.isNullOrBlank()) userAgentString = userAgent
             // Tahap 27.4: let SPA/JS auto-play inline media without a prior tap so
             // media-heavy sites (CapCut, video editors, streaming) render their players.
             mediaPlaybackRequiresUserGesture = false
@@ -106,7 +108,7 @@ object WebViewUtil {
         }
 
         runCatching { CookieManager.getInstance().setAcceptCookie(true) }
-        runCatching { CookieManager.getInstance().acceptThirdPartyCookies(webView) }
+        runCatching { CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true) }
     }
 
     /**
@@ -118,7 +120,7 @@ object WebViewUtil {
     fun applyDesktopMode(
         webView: WebView,
         desktop: Boolean,
-        mobileUserAgent: String = NetworkHelper.DEFAULT_USER_AGENT,
+        mobileUserAgent: String? = null,
     ) {
         with(webView.settings) {
             userAgentString = if (desktop) DESKTOP_USER_AGENT else mobileUserAgent
