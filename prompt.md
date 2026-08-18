@@ -1,22 +1,24 @@
 
-### Prompt Fase 31: Stabilisasi Komponen UI, Perbaikan Media, dan Peningkatan Template
+### Prompt Fase 32: Resolusi Blank Screen WebView & Adopsi Fitur sweb-master
 **Role & Objective**
-Kamu adalah **Senior Android Engineer dan arsitek inti aplikasi RoCat**. Kita sekarang masuk ke **Tahap 31: Stabilisasi Komponen UI, Perbaikan Media, dan Peningkatan Template**.
-Secara fungsional skrip sudah berjalan, namun terdapat beberapa *bug* kritis pada antarmuka pengguna (UI) yang dihasilkan dari eksekusi skrip:
- 1. **Bug Tombol:** Jika terdapat lebih dari satu tombol, mengklik tombol pertama akan memicu animasi *loading* pada tombol kedua (meskipun tidak ada aksi *load* sebenarnya pada tombol kedua).
- 2. **Bug Media (Image & Video):** Tampilan layar penuh (*full screen*) terasa "flat" dan tidak membaur dengan baik. Lebih parah lagi, fitur *download* mengalami *error* dan gagal menyimpan file ke *storage* perangkat.
- 3. **Kekurangan Fitur Template:** Template UI yang ada masih terlalu kaku dan butuh peningkatan, seperti penambahan tombol *copy* (salin) pada komponen yang relevan.
+Kamu adalah **Senior Android Engineer dan arsitek inti aplikasi RoCat**. Kita sekarang masuk ke **Tahap 32: Resolusi Kritis Blank Screen WebView & Integrasi Fitur Referensi (sweb-master)**.
+Pengguna telah membuktikan bahwa halaman web modern SPA (seperti https://www.capcut.com/signup) yang sebelumnya tampil *blank* putih di RoCat, ternyata berhasil dimuat dengan sempurna menggunakan aplikasi referensi open-source dari folder sweb-master yang ada di *local environment*.
+Tugas utamamu adalah membedah bagaimana sweb-master mengonfigurasi WebView-nya, lalu menerapkan perbaikan tersebut ke RoCat, sekaligus mengambil inspirasi fitur tambahan dari sana.
 **Execution Plan (Kerjakan Secara Bertahap)**
-Tolong lakukan investigasi dan selesaikan tugas-tugas berikut:
- * **Perbaikan Isolasi State Tombol:** Periksa implementasi *state management* (kemungkinan di ScriptCanvasViewModel atau komponen Compose tombol). Pastikan *state loading* diikat secara unik ke id atau referensi tombol yang sedang ditekan, sehingga tombol lain tidak ikut bereaksi.
- * **Perbaikan Full Screen & Download Media:**
-   * Perbaiki UI *full screen* untuk ImagePreviewCard dan VideoPreviewCard/RocatVideoPlayer. Pastikan penanganan WindowInsets (System Bars) diterapkan dengan benar agar tampilannya imersif dan tidak "flat".
-   * Lakukan *debugging* pada MediaDownloader dan StorageManager.saveFileToScrapeFolder. Temukan dan perbaiki penyebab file gagal disimpan ke *storage* (periksa *stream handling*, validasi URI, dan izin SAF).
- * **Peningkatan Template UI:** Tingkatkan *template card* yang sudah ada (misalnya untuk teks, log, atau hasil *scrape*). Tambahkan tombol aksi seperti "Copy" menggunakan ClipboardManager dan berikan *feedback* berupa Toast kepada pengguna.
- * **Pengujian Kompatibilitas & Kompilasi:** Lakukan kompilasi (./gradlew assembleDebug) dan pastikan seluruh UI merespons dengan benar tanpa *lag* atau *crash*.
+Tolong lakukan investigasi mendalam pada *source code* di folder sweb-master dan eksekusi langkah-langkah berikut:
+ 1. **Audit & Replikasi Ekstrem WebView Settings:**
+   * Bandingkan pengaturan di WebViewUtil.kt milik RoCat dengan cara sweb-master menginisialisasi WebView (cari kelas seperti MainActivity, BrowserFragment, atau WebSettings).
+   * Fokus pada hal-hal krusial untuk web SPA/React modern: pastikan domStorageEnabled = true, databaseEnabled = true, javaScriptCanOpenWindowsAutomatically, dan konfigurasi WebChromeClient (terutama penanganan memori atau kuota jika ada).
+   * **Cek Cookie & Third-Party:** Pastikan CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true) diaktifkan. Web modern sering *blank* jika *third-party cookies* (misal dari domain otentikasi) diblokir.
+ 2. **Investigasi User-Agent & Anti-Bot:**
+   * Cek bagaimana sweb-master menangani User-Agent. Di RoCat, kita sebelumnya memaksakan *User-Agent* desktop/mobile tertentu (Chrome 141). Jika ini memicu *blank* (karena ditolak oleh Cloudflare/CapCut), sesuaikan logikanya mengikuti sweb-master (apakah mereka membiarkan UA bawaan *device* atau menggunakan rotasi khusus?).
+ 3. **Integrasi Fitur Tambahan Referensi:**
+   * Berdasarkan kode di sweb-master, adopsi 1 atau 2 fitur fungsional yang bisa meningkatkan kualitas *in-app browser* RoCat. (Misalnya: cara mereka menangani *Ad-blocking* via shouldInterceptRequest, manajemen *cache/history* yang lebih baik, atau penanganan *download* media). Terapkan ke dalam arsitektur RoCat tanpa merusak fungsionalitas *scraper* Rhino yang sudah berjalan.
+ 4. **Kompilasi & Pengujian:**
+   * Pastikan tidak ada *error* saat kompilasi (./gradlew assembleDebug).
+   * Pastikan WebView tidak lagi menampilkan layar putih pada URL modern, dan *event* navigasi tetap terhubung ke BrowserViewModel kita.
 **Memory and Constraints (CRITICAL)**
- * **BACA ATURAN MEMORI:** Wajib memperbarui log di ai_memory/00_INDEX.md dan membuat catatan teknis baru (misalnya ai_memory/task_YYYYMMDD_HHMM_tahap31_ui_media_fixes.md).
- * **Sifat Sinkron Rhino:** Ingat bahwa mesin Rhino kita **TIDAK mendukung async/await**. Interaksi UI ke eksekusi skrip harus dikelola dengan aman di sisi Kotlin.
- * **Dukungan Ganda:** Skrip lama yang menggunakan fungsi UI dasar harus tetap bekerja 100% normal (tetap *backward-compatible*).
- * **Anti-Crash:** Setiap *error/throw* saat memproses UI atau mengunduh file harus ditangkap oleh Kotlin (blok try-catch) dan diberikan Toast atau *Log* UI, bukan membuat aplikasi *force close*.
-Silakan langsung di-copas ke *coding assistant* kamu! Untuk template baru, apakah ada komponen spesifik lain yang ingin kamu tambahkan tombol *copy*-nya (misalnya khusus untuk *Alert Banner* atau *Badge*), atau cukup untuk hasil keluaran teks dan JSON saja?
+ * **BACA ATURAN MEMORI:** Wajib memperbarui log di ai_memory/00_INDEX.md dan membuat catatan teknis baru (misalnya ai_memory/task_YYYYMMDD_HHMM_tahap32_webview_sweb_integration.md). Jelaskan secara spesifik pengaturan apa dari sweb-master yang menjadi "obat" dari isu *blank screen* tersebut.
+ * WebView harus tetap berada di layer UI (Compose), jangan pindahkan *instance* WebView ke dalam ViewModel untuk menghindari *memory leak*.
+ * Semua fungsi *bridge* JavaScript (RoCatDOM, RoCatUI, Rhino engine) dari tahap sebelumnya **wajib** tetap berjalan 100% normal.
+Dari fitur-fitur bawaan browser yang biasanya ada di *source code* seperti sweb-master (misalnya *Ad-Blocker* bawaan, *Incognito Mode*, atau *Advanced Download Manager*), fitur tambahan mana yang menurutmu paling ingin diprioritaskan untuk diimpor ke RoCat di fase ini?
