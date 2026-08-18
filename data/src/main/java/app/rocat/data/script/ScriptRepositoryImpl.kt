@@ -8,6 +8,7 @@ import app.rocat.scripting.api.ScriptBrowserBridge
 import app.rocat.scripting.api.ScriptEngine
 import app.rocat.scripting.api.ScriptEnvironment
 import app.rocat.scripting.api.ScriptUiBridge
+import app.rocat.scripting.api.ScriptSettingsBridge
 import app.rocat.scripting.api.model.DefaultScriptEnvironment
 import app.rocat.scripting.api.model.Script
 import app.rocat.scripting.api.network.scriptFetch
@@ -155,12 +156,18 @@ class ScriptManager(
      * UI (used by the canvas/playground). When [browser] is provided it is exposed as
      * the script's global `RoCatPage` (Tahap 23: dual-mode scraping), letting a script
      * switch from static `fetch()` scraping to interactive headless-WebView automation.
+     * When [settings] is provided it is exposed as `RoCat.settings` (Tahap 35).
      */
-    fun createEnvironment(ui: ScriptUiBridge? = null, browser: ScriptBrowserBridge? = null): ScriptEnvironment =
+    fun createEnvironment(
+        ui: ScriptUiBridge? = null,
+        browser: ScriptBrowserBridge? = null,
+        settings: ScriptSettingsBridge? = null,
+    ): ScriptEnvironment =
         DefaultScriptEnvironment(
             fetchImpl = fetchImplOrThrow(),
             ui = ui,
             browser = browser,
+            settings = settings,
         )
 
     private fun fetchImplOrThrow(): suspend (String, String, Map<String, String>, String?) -> FetchResult {

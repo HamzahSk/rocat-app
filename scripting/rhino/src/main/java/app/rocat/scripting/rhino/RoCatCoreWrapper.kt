@@ -129,6 +129,68 @@ var RoCat = (function () {
                 RoCatUI.log(String(pick(item, "text", "") || pick(item, "message", "")));
                 return;
             }
+            // --- Tahap 35: flexible layouts & rich input controls ---
+            if (type === "text") {
+                RoCatUI.addText(String(pick(item, "content", "") || pick(item, "text", "")), pick(item, "style", "body"));
+                return;
+            }
+            if (type === "divider") {
+                RoCatUI.addDivider(pick(item, "thickness", 1), pick(item, "color", "#cccccc"));
+                return;
+            }
+            if (type === "checkbox") {
+                RoCatUI.addCheckbox(pick(item, "id", ""), pick(item, "label", "") || pick(item, "id", ""), pickBool(item, "checked", false) || pickBool(item, "default", false));
+                return;
+            }
+            if (type === "toggle") {
+                RoCatUI.addToggle(pick(item, "id", ""), pick(item, "label", "") || pick(item, "id", ""), pickBool(item, "checked", false) || pickBool(item, "default", false));
+                return;
+            }
+            if (type === "dropdown") {
+                var ddOptions = item.options || [];
+                if (typeof ddOptions === "string") ddOptions = String(ddOptions).split(",");
+                RoCatUI.addDropdown(pick(item, "id", ""), ddOptions, pick(item, "default", "") || pick(item, "selected", ""), pick(item, "label", ""));
+                return;
+            }
+            if (type === "number") {
+                RoCatUI.addNumber(pick(item, "id", ""), pick(item, "default", null), pick(item, "min", null), pick(item, "max", null), pick(item, "step", null), pick(item, "label", ""));
+                return;
+            }
+            if (type === "colorpicker") {
+                RoCatUI.addColorPicker(pick(item, "id", ""), pick(item, "default", "#000000"), pick(item, "label", ""));
+                return;
+            }
+            if (type === "textarea") {
+                RoCatUI.addTextArea(pick(item, "id", ""), pick(item, "hint", ""), pick(item, "rows", 3), pick(item, "default", ""));
+                return;
+            }
+            if (type === "autocomplete") {
+                var acOptions = item.suggestions || [];
+                if (typeof acOptions === "string") acOptions = String(acOptions).split(",");
+                RoCatUI.addAutocomplete(
+                    pick(item, "id", ""),
+                    pick(item, "hint", ""),
+                    acOptions,
+                    pick(item, "historyKey", ""),
+                    pick(item, "maxHistory", 20),
+                    pickBool(item, "showHistory", true),
+                    pickBool(item, "showClearHistory", true),
+                    pick(item, "default", "")
+                );
+                return;
+            }
+            if (type === "group") {
+                var groupChildren = item.children || [];
+                if (typeof groupChildren !== "string") groupChildren = JSON.stringify(groupChildren);
+                RoCatUI.addGroup(pick(item, "title", ""), pickBool(item, "collapsed", false), groupChildren);
+                return;
+            }
+            if (type === "layout") {
+                var layoutChildren = item.children || [];
+                if (typeof layoutChildren !== "string") layoutChildren = JSON.stringify(layoutChildren);
+                RoCatUI.addLayout(pick(item, "layout", "column"), pick(item, "columns", 2), pick(item, "padding", 0), pickBool(item, "divider", false), layoutChildren, pick(item, "flex", null));
+                return;
+            }
         } catch (e) {
             // A bad descriptor must never break the caller.
         }

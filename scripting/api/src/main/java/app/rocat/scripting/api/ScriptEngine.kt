@@ -39,6 +39,15 @@ interface ScriptEnvironment {
      */
     val browser: ScriptBrowserBridge?
         get() = null
+
+    /**
+     * Optional per-script settings bridge exposed to the script as the global
+     * `RoCat.settings` object plus `RoCat.saveHistory`/`clearHistory`/`openSettings`
+     * (Tahap 35). When non-null the engine installs a typed settings object whose
+     * values come from [ScriptSettingsBridge.snapshot]. `null` for plain executions.
+     */
+    val settings: ScriptSettingsBridge?
+        get() = null
 }
 
 /**

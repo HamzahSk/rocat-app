@@ -5,6 +5,7 @@ import app.rocat.scripting.api.ScriptEngine
 import app.rocat.scripting.api.ScriptEnvironment
 import app.rocat.scripting.api.ScriptResult
 import app.rocat.scripting.api.ScriptUiBridge
+import app.rocat.scripting.api.ScriptSettingsBridge
 import app.rocat.scripting.api.model.Script
 import app.rocat.scripting.api.network.scriptFetch
 import kotlinx.coroutines.CancellationException
@@ -224,7 +225,66 @@ class RhinoScriptEngine(
         // It always exists — render()/safeParseJson()/fetchJson() degrade gracefully when
         // there is no RoCatUI bridge (e.g. plain executions).
         cx.evaluateString(scope, RO_CAT_CORE_WRAPPER_JS, "RoCatCore.js", 1, null)
+
+        // Tahap 35: per-script settings bridge. When present the engine installs the
+        // global `RoCat.settings` object (typed snapshot from the native bridge),
+        // `RoCat.onSettingsChanged(fn)`, `RoCat.saveHistory/clearHistory(key, value)`
+        // and `RoCat.openSettings()`. Absent in plain executions, mirroring
+        // `typeof RoCat.settings === "undefined"` for scripts that don't use it.
+        val settingsBridge = environment.settings
+        if (settingsBridge != null) {
+            ScriptableObject.putProperty(scope, "__rocatSettingsJson__", typedSettingsJson(settingsBridge))
+            ScriptableObject.putProperty(scope, "__rocatSettingsBridge__", RoCatSettingsBridgeObject(cx, scope, settingsBridge))
+            cx.evaluateString(scope, RO_CAT_SETTINGS_WRAPPER_JS, "RoCatSettings.js", 1, null)
+        }
         return scope
+    }
+
+    /**
+     * Serialises [ScriptSettingsBridge.snapshot] to a JS-value JSON object, coercing
+     * each value to a boolean/number/string according to the bridge's declared types.
+     * Scripts read `RoCat.settings.<key>` with the correct JS type (e.g. `=== true`,
+     * numeric comparisons) instead of raw strings.
+     */
+    private fun typedSettingsJson(bridge: ScriptSettingsBridge): String {
+        val types = bridge.types()
+        val values = bridge.snapshot()
+        val sb = StringBuilder("{")
+        var first = true
+        for ((key, raw) in values) {
+            if (!first) sb.append(',')
+            first = false
+            sb.append('"').append(escapeJsonString(key)).append("\":")
+            sb.append(coerceToJsonValue(raw, types[key]))
+        }
+        sb.append('}')
+        return sb.toString()
+    }
+
+    private fun coerceToJsonValue(raw: String, type: String?): String {
+        if (type == null) return quoted(raw)
+        return when (type.lowercase()) {
+            "boolean" -> if (raw.trim().equals("true", ignoreCase = true) || raw.trim() == "1") "true" else "false"
+            "number" -> raw.trim().toDoubleOrNull()?.let {
+                if (it.isFinite()) { if (it % 1.0 == 0.0) it.toLong().toString() else it.toString() } else "0"
+            } ?: "0"
+            else -> quoted(raw)
+        }
+    }
+
+    private fun quoted(value: String): String = "\"" + escapeJsonString(value) + "\""
+
+    private fun escapeJsonString(value: String): String = buildString {
+        for (ch in value) {
+            when (ch) {
+                '"' -> append("\\\"")
+                '\\' -> append("\\\\")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> append(ch)
+            }
+        }
     }
 
     private fun runFetch(
@@ -493,6 +553,77 @@ private class RoCatUiBridge(
         put("addBadgeGroup", this, Fn { args ->
             runSafe { ui.addBadgeGroup(argJson(args, 0)) }
         })
+
+        // --- Tahap 35: flexible layouts & rich input controls ---
+        put("addText", this, Fn { args ->
+            runSafe { ui.addText(argString(args, 0), argString(args, 1, "body")) }
+        })
+        put("addDivider", this, Fn { args ->
+            runSafe { ui.addDivider(argInt(args, 0, 1), argString(args, 1, "#cccccc")) }
+        })
+        put("addCheckbox", this, Fn { args ->
+            runSafe { ui.addCheckbox(argString(args, 0), argString(args, 1), argBoolean(args, 2)) }
+        })
+        put("addToggle", this, Fn { args ->
+            runSafe { ui.addToggle(argString(args, 0), argString(args, 1), argBoolean(args, 2)) }
+        })
+        put("addDropdown", this, Fn { args ->
+            runSafe {
+                ui.addDropdown(
+                    argString(args, 0),
+                    argStringArray(args, 1),
+                    argString(args, 2),
+                    argString(args, 3, ""),
+                )
+            }
+        })
+        put("addNumber", this, Fn { args ->
+            runSafe {
+                ui.addNumber(
+                    argString(args, 0),
+                    argDouble(args, 1),
+                    argDouble(args, 2),
+                    argDouble(args, 3),
+                    argDouble(args, 4),
+                    argString(args, 5, ""),
+                )
+            }
+        })
+        put("addColorPicker", this, Fn { args ->
+            runSafe { ui.addColorPicker(argString(args, 0), argString(args, 1, "#000000"), argString(args, 2, "")) }
+        })
+        put("addTextArea", this, Fn { args ->
+            runSafe { ui.addTextArea(argString(args, 0), argString(args, 1), argInt(args, 2, 3), argString(args, 3)) }
+        })
+        put("addAutocomplete", this, Fn { args ->
+            runSafe {
+                ui.addAutocomplete(
+                    argString(args, 0),
+                    argString(args, 1),
+                    argStringArray(args, 2),
+                    argString(args, 3),
+                    argInt(args, 4, 20),
+                    argBoolean(args, 5, true),
+                    argBoolean(args, 6, true),
+                    argString(args, 7),
+                )
+            }
+        })
+        put("addGroup", this, Fn { args ->
+            runSafe { ui.addGroup(argString(args, 0), argBoolean(args, 1), argJson(args, 2)) }
+        })
+        put("addLayout", this, Fn { args ->
+            runSafe {
+                ui.addLayout(
+                    argString(args, 0, "column"),
+                    argInt(args, 1, 2),
+                    argInt(args, 2, 0),
+                    argBoolean(args, 3),
+                    argJson(args, 4),
+                    argInt(args, 5, 0).takeIf { it > 0 },
+                )
+            }
+        })
     }
 
     override fun getClassName(): String = "RoCatUiBridge"
@@ -538,6 +669,116 @@ private class RoCatUiBridge(
     }
 
     /** Like [runSafe] but returns [default] when the bridge throws. */
+    private fun <T> runSafeValue(default: T, block: () -> T): T =
+        try {
+            block()
+        } catch (_: Throwable) {
+            default
+        }
+}
+
+/**
+ * The auto-injected **settings bridge** (Tahap 35). `[RhinoScriptEngine]` evaluates
+ * this into the scope *after* the core wrapper whenever the host supplies a
+ * [ScriptSettingsBridge], exposing the ergonomic `RoCat.settings` object:
+ *
+ * - `RoCat.settings` — a typed snapshot of the script's persisted settings; direct
+ *   property access (`RoCat.settings.username`), `get(key)`, `getAll()`.
+ * - `RoCat.settings.set(key, value)` — persists a value and fires registered
+ *   `onSettingsChanged` callbacks within the current execution.
+ * - `RoCat.settings.setTemp(key, value)` / `getTemp(key)` — per-session storage.
+ * - `RoCat.onSettingsChanged(fn)` — registers a callback for in-scope setting changes.
+ * - `RoCat.saveHistory(key, value)` / `RoCat.clearHistory(key)` — input history.
+ * - `RoCat.openSettings()` — asks the host to open this script's settings page.
+ *
+ * Written in ES5 (Rhino 1.7.15-safe). Every bridge call is guarded so a missing
+ * bridge (plain executions) degrades gracefully.
+ */
+const val RO_CAT_SETTINGS_WRAPPER_JS: String = """
+(function () {
+    var base = {};
+    try { base = JSON.parse(__rocatSettingsJson__ || "{}") || {}; } catch (e) { base = {}; }
+    var callbacks = [];
+
+    function bridge() {
+        if (typeof __rocatSettingsBridge__ === "undefined") return null;
+        return __rocatSettingsBridge__;
+    }
+
+    function fireChanged() {
+        for (var i = 0; i < callbacks.length; i++) {
+            try { callbacks[i](RoCat.settings); } catch (e) { /* listener errors are isolated */ }
+        }
+    }
+
+    base.get = function (k) { return base[k]; };
+    base.getAll = function () { return base; };
+    base.set = function (k, v) {
+        if (k === null || k === undefined) return;
+        if (v !== undefined) base[k] = v;
+        var b = bridge();
+        if (b) { try { b.setValue(String(k), String(v)); } catch (e) {} }
+        fireChanged();
+    };
+    base.setTemp = function (k, v) {
+        var b = bridge();
+        if (b) { try { b.setTemp(String(k), String(v)); } catch (e) {} }
+    };
+    base.getTemp = function (k) {
+        var b = bridge();
+        if (!b) return null;
+        try { return b.getTemp(String(k)); } catch (e) { return null; }
+    };
+
+    RoCat.settings = base;
+    RoCat.onSettingsChanged = function (fn) {
+        if (typeof fn === "function") callbacks.push(fn);
+    };
+    RoCat.saveHistory = function (key, value) {
+        var b = bridge();
+        if (b) { try { b.saveHistory(String(key), String(value)); } catch (e) {} }
+    };
+    RoCat.clearHistory = function (key) {
+        var b = bridge();
+        if (b) { try { b.clearHistory(String(key)); } catch (e) {} }
+    };
+    RoCat.openSettings = function () {
+        var b = bridge();
+        if (b) { try { b.openSettings(); } catch (e) {} }
+    };
+})();
+"""
+
+/**
+ * The native `__rocatSettingsBridge__` object: a thin pass-through to the host's
+ * [ScriptSettingsBridge] that scripts reach through the `RoCat.settings` wrapper.
+ * Failures never throw back into JS (each call is wrapped in runSafe).
+ */
+private class RoCatSettingsBridgeObject(
+    private val cx: Context,
+    private val scope: Scriptable,
+    private val bridge: ScriptSettingsBridge,
+) : ScriptableObject() {
+
+    init {
+        put("setValue", this, Fn { args -> runSafe { bridge.setValue(argString(args, 0), argString(args, 1)) } })
+        put("setTemp", this, Fn { args -> runSafe { bridge.setTemp(argString(args, 0), argString(args, 1)) } })
+        put("getTemp", this, Fn { args -> runSafeValue(null) { bridge.getTemp(argString(args, 0)) } })
+        put("saveHistory", this, Fn { args -> runSafe { bridge.saveHistory(argString(args, 0), argString(args, 1)) } })
+        put("clearHistory", this, Fn { args -> runSafe { bridge.clearHistory(argString(args, 0)) } })
+        put("openSettings", this, Fn { runSafe { bridge.openSettings() } })
+    }
+
+    override fun getClassName(): String = "RoCatSettingsBridge"
+
+    private fun runSafe(block: () -> Unit) {
+        try {
+            block()
+        } catch (_: Throwable) {
+            // A settings bridge failure must never crash the script evaluation.
+        }
+    }
+
     private fun <T> runSafeValue(default: T, block: () -> T): T =
         try {
             block()
@@ -607,6 +848,37 @@ private fun argInt(args: Array<out Any?>, index: Int, default: Int = 0): Int {
         is CharSequence -> value.toString().trim().toIntOrNull() ?: default
         else -> runCatching { Context.toNumber(value).toInt() }.getOrDefault(default)
     }
+}
+
+/** Reads the [index]-th JS argument as a Double, or null when absent/undefined. */
+private fun argDouble(args: Array<out Any?>, index: Int): Double? {
+    val value = args.getOrNull(index) ?: return null
+    if (value === Undefined.instance) return null
+    return when (value) {
+        is Number -> value.toDouble()
+        is CharSequence -> value.toString().trim().toDoubleOrNull()
+        else -> runCatching { Context.toNumber(value) }.getOrNull()
+    }
+}
+
+/** Reads the [index]-th JS argument as a List<String> (JS array of primitives). */
+private fun argStringArray(args: Array<out Any?>, index: Int): List<String> {
+    val value = args.getOrNull(index) ?: return emptyList()
+    if (value === Undefined.instance) return emptyList()
+    if (value is Scriptable) {
+        val result = mutableListOf<String>()
+        for (id in value.ids) {
+            // JS array ids are integer indices (Int); plain object ids are Strings.
+            val item = when (id) {
+                is Int -> value.get(id, value)
+                else -> value.get(id.toString(), value)
+            } ?: continue
+            if (item === Undefined.instance) continue
+            result += Context.toString(item).trim()
+        }
+        return result.filter { it.isNotEmpty() }
+    }
+    return Context.toString(value).split(',').map { it.trim() }.filter { it.isNotEmpty() }
 }
 
 /** Reads the [index]-th JS argument as a Boolean, or [default] when absent/undefined. */

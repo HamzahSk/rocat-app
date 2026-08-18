@@ -22,6 +22,7 @@ import app.rocat.media.MediaDownloader
 import app.rocat.settings.SettingsRepository
 import app.rocat.scripting.HeadlessWebViewManager
 import app.rocat.scripting.RoCatBrowserBridge
+import app.rocat.scripting.ScriptSettingsManager
 import app.rocat.scripting.api.ScriptBrowserBridge
 import app.rocat.storage.StorageManager
 import app.rocat.ui.browser.BrowserViewModel
@@ -92,10 +93,17 @@ override fun registerInjectables(registrar: Registrar) {
         registrar.addSingleton(MediaDownloader(networkHelper, storageManager))
 
         // Tahap 15.3: Room database singleton + DAOs.
-        val database = Room.databaseBuilder(app, AppDatabase::class.java, DATABASE_NAME).build()
+        val database = Room.databaseBuilder(app, AppDatabase::class.java, DATABASE_NAME)
+            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .build()
         registrar.addSingleton(database)
         registrar.addSingleton(database.cookieDao())
         registrar.addSingleton(database.historyDao())
+        registrar.addSingleton(database.scriptSettingsDao())
+        registrar.addSingleton(database.scriptInputHistoryDao())
+
+        // Tahap 35: per-script settings manager (persistence, defaults, history, export).
+        registrar.addSingleton(ScriptSettingsManager(database))
 
         // ViewModels. Registered as Injekt factories so the Compose screens can build
         // them without the reflection-based default factory (which only supports

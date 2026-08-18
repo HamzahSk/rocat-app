@@ -106,4 +106,120 @@ class ScriptMetadataParserTest {
 
         assertEquals("https://example.com/favicon.ico", meta.icon)
     }
+
+    // --- Tahap 35: @settings metadata ---
+
+    @Test
+    fun `parses typed settings with defaults and constraints`() {
+        val source = """
+            // ==UserScript==
+            // @name x
+            // @settings username: string: default=admin, label=Username, placeholder=enter name
+            // @settings enabled: boolean: default=true
+            // @settings limit: number: default=10, min=1, max=100, step=5
+            // @settings mode: select: default=auto, options=auto,manual,off
+            // @settings token: password: default=
+            // @settings notes: multiline: default=hello, rows=5
+            // @settings accent: color: default=#ff0000
+            // @settings contact: email: default=a@b.c
+            // ==/UserScript==
+        """.trimIndent()
+
+        val settings = ScriptMetadataParser.parse(source).settings
+
+        assertEquals(8, settings.size)
+
+        val username = settings[0]
+        assertEquals("username", username.key)
+        assertEquals(ScriptSettingType.STRING, username.type)
+        assertEquals("admin", username.defaultValue)
+        assertEquals("Username", username.label)
+        assertEquals("enter name", username.placeholder)
+
+        val enabled = settings[1]
+        assertEquals(ScriptSettingType.BOOLEAN, enabled.type)
+        assertEquals("true", enabled.normalizedDefault)
+
+        val limit = settings[2]
+        assertEquals(ScriptSettingType.NUMBER, limit.type)
+        assertEquals(1.0, limit.min!!, 0.0)
+        assertEquals(100.0, limit.max!!, 0.0)
+        assertEquals(5.0, limit.step!!, 0.0)
+        assertEquals("10", limit.normalizedDefault)
+
+        val mode = settings[3]
+        assertEquals(ScriptSettingType.SELECT, mode.type)
+        assertEquals(listOf("auto", "manual", "off"), mode.options)
+        assertEquals("auto", mode.normalizedDefault)
+
+        assertEquals(ScriptSettingType.PASSWORD, settings[4].type)
+        assertEquals("", settings[4].normalizedDefault)
+
+        val notes = settings[5]
+        assertEquals(ScriptSettingType.MULTILINE, notes.type)
+        assertEquals(5, notes.rows)
+        assertEquals("hello", notes.normalizedDefault)
+
+        assertEquals(ScriptSettingType.COLOR, settings[6].type)
+        assertEquals("#ff0000", settings[6].normalizedDefault)
+
+        assertEquals(ScriptSettingType.EMAIL, settings[7].type)
+        assertEquals("a@b.c", settings[7].normalizedDefault)
+    }
+
+    @Test
+    fun `normalizes boolean and numeric defaults`() {
+        val source = """
+            // ==UserScript==
+            // @name x
+            // @settings on: boolean: default=1
+            // @settings off: boolean: default=0
+            // @settings n: number: default=3.5
+            // @settings bad: number: default=abc
+            // ==/UserScript==
+        """.trimIndent()
+
+        val settings = ScriptMetadataParser.parse(source).settings
+
+        assertEquals("true", settings[0].normalizedDefault)
+        assertEquals("false", settings[1].normalizedDefault)
+        assertEquals("3.5", settings[2].normalizedDefault)
+        assertEquals("", settings[3].normalizedDefault)
+    }
+
+    @Test
+    fun `label falls back to key`() {
+        val source = """
+            // ==UserScript==
+            // @name x
+            // @settings bare: string: default=x
+            // ==/UserScript==
+        """.trimIndent()
+
+        val setting = ScriptMetadataParser.parse(source).settings.first()
+        assertEquals("bare", setting.displayLabel)
+    }
+
+    @Test
+    fun `unknown type falls back to string and malformed lines are skipped`() {
+        val source = """
+            // ==UserScript==
+            // @name x
+            // @settings ok: bogus: default=1
+            // @settings missingtype
+            // @settings nocolon
+            // ==/UserScript==
+        """.trimIndent()
+
+        val settings = ScriptMetadataParser.parse(source).settings
+
+        assertEquals(1, settings.size)
+        assertEquals(ScriptSettingType.STRING, settings[0].type)
+        assertEquals("1", settings[0].defaultValue)
+    }
+
+    @Test
+    fun `no settings declared yields empty list`() {
+        assertEquals(emptyList<ScriptSetting>(), ScriptMetadataParser.parse("function main() {}").settings)
+    }
 }

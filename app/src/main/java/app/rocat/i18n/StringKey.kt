@@ -61,6 +61,21 @@ enum class StringKey(val key: String) {
     rebuildCanvas("rebuild_canvas"),
     running("running"),
     output("output"),
+    options("options"),
+
+    // Script settings (Tahap 35)
+    scriptSettings("script_settings"),
+    noSettingsDeclared("no_settings_declared"),
+    settingsSummary("settings_summary"),
+    settingsSummaryBody("settings_summary_body"),
+    resetToDefault("reset_to_default"),
+    exportSettings("export_settings"),
+    exportSettingsBody("export_settings_body"),
+    importSettings("import_settings"),
+    importSettingsBody("import_settings_body"),
+    settingsReset("settings_reset"),
+    settingsImported("settings_imported"),
+    settingsImportFailed("settings_import_failed"),
 
     // Media previews (Tahap 18)
     download("download"),

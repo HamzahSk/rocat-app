@@ -6,6 +6,7 @@ import app.rocat.core.viewmodel.StateViewModel
 import app.rocat.domain.script.DeleteScript
 import app.rocat.domain.script.GetScripts
 import app.rocat.domain.script.SetScriptEnabled
+import app.rocat.scripting.ScriptSettingsManager
 import app.rocat.scripting.api.model.Script
 import app.rocat.storage.StorageManager
 import kotlinx.coroutines.flow.SharingStarted
@@ -19,6 +20,7 @@ class ScriptsViewModel(
     private val setScriptEnabled: SetScriptEnabled = Injekt.get(),
     private val deleteScript: DeleteScript = Injekt.get(),
     private val storageManager: StorageManager = Injekt.get(),
+    private val settingsManager: ScriptSettingsManager = Injekt.get(),
 ) : StateViewModel<ScriptsViewModel.State>(State()) {
 
     data class State(
@@ -38,5 +40,7 @@ class ScriptsViewModel(
         deleteScript.await(id)
         // Tahap 17.2: remove the physical `Scripts/[id]` folder too.
         storageManager.deleteScriptFolder(id)
+        // Tahap 35: drop the persisted settings + input history for the deleted script.
+        settingsManager.deleteAll(id)
     }
 }

@@ -73,6 +73,7 @@ bila blok tidak ada ia *fallback* ke pemindaian setiap baris `// @tag value`.
 | `@match` | Daftar pola URL | Digabung dengan `@include` menjadi allow-list (informational). |
 | `@include` | Daftar pola URL | Alias `@match`. |
 | `@grant` | Izin | `none` dirender sebagaimana adanya; saat ini tidak dipakai untuk gating API. |
+| `@settings` | Pengaturan skrip | Deklarasi pengaturan editable (lihat **§8**): `key: tipe: default=..., label=..., min=..., max=..., step=..., options=a,b,c, maxLength=..., rows=...`. |
 
 Semua tag bersifat case-*insensitive*. `@name` adalah satu-satunya nilai wajib yang
 memengaruhi tampilan; jika tidak ada, aplikasi memakai nama file/generated id.
@@ -371,6 +372,17 @@ kunci `type` (+ field sesuai tipe). Deskriptor yang salah/null diabaikan tanpa e
 | `"badges"` | `badges` (alias `items`/`list`) | `RoCatUI.addBadgeGroup(badges)` |
 | `"grid"` | `columns`, `items` (alias `entries`), `onClick` (alias `fn`), `headers` | `RoCatUI.addGrid(columns, items, onClick, headers)` |
 | `"log"` | `text` (alias `message`) | `RoCatUI.log(text)` |
+| `"text"` | `content` (alias `text`), `style` | `RoCatUI.addText(content, style)` |
+| `"divider"` | `thickness`, `color` | `RoCatUI.addDivider(thickness, color)` |
+| `"checkbox"` | `id`, `label`, `default` (alias `checked`) | `RoCatUI.addCheckbox(id, label, default)` |
+| `"toggle"` | `id`, `label`, `default` (alias `checked`) | `RoCatUI.addToggle(id, label, default)` |
+| `"dropdown"` | `id`, `options` (array/string koma), `default` (alias `selected`), `label` | `RoCatUI.addDropdown(id, options, default, label)` |
+| `"number"` | `id`, `default`, `min`, `max`, `step`, `label` | `RoCatUI.addNumber(id, default, min, max, step, label)` |
+| `"colorpicker"` | `id`, `default`, `label` | `RoCatUI.addColorPicker(id, default, label)` |
+| `"textarea"` | `id`, `hint`, `rows`, `default` | `RoCatUI.addTextArea(id, hint, rows, default)` |
+| `"autocomplete"` | `id`, `hint`, `suggestions`, `historyKey`, `maxHistory`, `showHistory`, `showClearHistory`, `default` | `RoCatUI.addAutocomplete(id, hint, suggestions, historyKey, maxHistory, showHistory, showClearHistory, default)` |
+| `"group"` | `title`, `collapsed`, `children` | `RoCatUI.addGroup(title, collapsed, JSON.stringify(children))` |
+| `"layout"` | `layout` (`row`/`column`/`grid`), `columns`, `padding`, `divider`, `children`, `flex` | `RoCatUI.addLayout(layout, columns, padding, divider, JSON.stringify(children), flex)` |
 
 Contoh — membandingkan gaya lama vs baru:
 
@@ -394,6 +406,60 @@ RoCat.render([
 
 > `RoCat.render` berjalan meskipun `RoCatUI` tidak tersedia (mis. eksekusi polos di
 > luar Canvas) — panggilan UI hanya dilewati, tidak error.
+
+### 2.7 Layout & Kontrol Kaya (Tahap 35)
+
+Selain input/button klasik, canvas kini punya komponen statis, kontrol input kaya, dan
+kontainer fleksibel. Semua method ada di `RoCatUI` DAN bisa dipakai lewat `RoCat.render`
+(lihat tabel §2.6).
+
+#### Komponen statis
+
+- `RoCatUI.addText(content, style)` — teks; `style` ∈ `"heading"`/`"title"`/`"body"`/
+  `"caption"` (default `"body"`).
+- `RoCatUI.addDivider(thickness, color)` — garis pemisah horizontal; `thickness` (px,
+  default 1), `color` hex (default `#cccccc`).
+
+#### Kontrol input
+
+| Method | Parameter | Keterangan |
+|--------|-----------|------------|
+| `addCheckbox(id, label, checked)` | `checked=false` | Kotak centang; nilai dikumpulkan `"true"`/`"false"`. |
+| `addToggle(id, label, checked)` | `checked=false` | Saklar ON/OFF. |
+| `addDropdown(id, options, selected, label)` | `options: string[]` | Dropdown; nilai = opsi terpilih. |
+| `addNumber(id, value, min, max, step, label)` | semua opsional | Field angka + tombol ±; di-clamp ke `min`/`max`. |
+| `addColorPicker(id, color, label)` | `color="#000000"` | Preview warna + field hex. |
+| `addTextArea(id, hint, rows, value)` | `rows=3` | Area teks multi-baris. |
+| `addAutocomplete(id, hint, suggestions, historyKey, maxHistory, showHistory, showClearHistory, value)` | `historyKey=""` | Field teks + saran; bila `historyKey` terisi, nilai yang pernah diketik tersimpan otomatis dan muncul sebagai saran riwayat (hapus via tombol "Bersihkan riwayat"). |
+
+Nilai semua kontrol dikumpulkan per-`id` dan diteruskan sebagai satu objek ke fungsi
+tombol (sama seperti `addInput`).
+
+#### Kontainer fleksibel
+
+- `RoCatUI.addGroup(title, collapsed, childrenJson)` — kartu berjudul yang bisa
+  dilipat; `childrenJson` = string JSON array descriptor (sama format §2.6).
+- `RoCatUI.addLayout(layout, columns, padding, divider, childrenJson, flex)` —
+  kontainer dengan `layout` ∈ `"row"`/`"column"`/`"grid"`; `columns` untuk grid
+  (default 2), `padding` (px), `divider` (pemisah antar anak), dan `flex` (bobot
+  lebar kontainer di dalam parent `row`/`grid`).
+- Setiap anak bisa membawa `"flex": 1/2/3…` agar di dalam `row`/`grid` ia mengambil
+  proporsi lebar sesuai bobot (default 1). Kontrol di dalam `group`/`layout` ikut
+  dikumpulkan & diperbarui secara rekursif.
+
+```javascript
+RoCat.render([
+    { type: "text", content: "Pengaturan Pencarian", style: "title" },
+    { type: "layout", layout: "row", children: [
+        { type: "autocomplete", id: "q", hint: "Kata kunci", historyKey: "search-q", flex: 3 },
+        { type: "button", label: "Cari", fn: "doSearch", flex: 1 }
+    ]},
+    { type: "group", title: "Opsi Lanjutan", children: [
+        { type: "toggle", id: "zip", label: "Unduh sebagai ZIP" },
+        { type: "number", id: "limit", default: 50, min: 1, max: 500, label: "Maksimal" }
+    ]}
+]);
+```
 
 ---
 
@@ -1085,6 +1151,7 @@ function openInteractive(inputs) {
 | Grid | `app/.../ui/components/GridView.kt` + `ScriptUIComponent.parseGrid` |
 | Network stealth / DoH / UA | `core/.../network/NetworkHelper.kt`, interceptor CF & Stealth |
 | Metadata Parser | `domain/.../script/ScriptMetadataParser.kt` |
+| `RoCat.settings` + history | `scripting/api/.../ScriptSettingsBridge.kt` + `app/.../scripting/ScriptSettingsManager.kt` + `RoCatSettings.js` (Rhino) |
 
 > Skrip nyata yang memakai seluruh API ini: `scrape_anichin.js` dan
 > `fixed_testscrape.js` (perbaikan draf `testscrape.txt`) di root repo — gunakan
@@ -1094,6 +1161,91 @@ function openInteractive(inputs) {
 > debug stream dengan `addJsonLog`, dan penanganan HLS sungguhan (decode base64/
 > ekstraksi `html5player` via `innerHtml` → master `.m3u8` → pilih varian →
 > `RoCatUI.addVideo(..., true, true)`).
+>
+> Skrip yang hanya memakai `RoCat.settings` (Tanpa metadata) tetap berjalan: key
+> well-known (`autoRun`, `timeout`, `downloadPath`, …) punya default bawaan.
+
+## 8. Pengaturan Skrip — `RoCat.settings` (Tahap 35)
+
+Skrip dapat mendeklarasikan **pengaturan yang bisa diubah pengguna** tanpa mengubah kode.
+Aplikasi merender form-nya di halaman **Pengaturan Skrip** (ikon ⚙ di kanvas, atau via
+`RoCat.openSettings()`), menyimpan nilainya per-skrip, dan membagikannya ke skrip lewat
+objek `RoCat.settings`.
+
+### 8.1 Metadata `@settings`
+
+Tambah satu baris per pengaturan di blok `==UserScript==`:
+
+```
+// @settings key: tipe: default=..., label=..., placeholder=...,
+//                 min=..., max=..., step=..., options=a,b,c,
+//                 maxLength=..., rows=...
+```
+
+| Tipe | Kontrol yang dirender | Validasi |
+|------|----------------------|----------|
+| `string` | field teks | — |
+| `password` | field teks tersembunyi | — |
+| `boolean` | saklar ON/OFF | `"true"`/`"false"` |
+| `number` | field angka + tombol ± | di-clamp ke `min`/`max` |
+| `select` | dropdown | harus salah satu dari `options` |
+| `multiline` | area teks (`rows` baris) | — |
+| `color` | preview + field hex | — |
+| `email` | field teks (keyboard email) | — |
+
+Contoh:
+
+```javascript
+// ==UserScript==
+// @name          Konverter
+// @settings      quality: select: default=1080p, options=480p,720p,1080p, label=Kualitas
+// @settings      zip: boolean: default=true, label=Bungkus dalam ZIP
+// @settings      limit: number: default=50, min=1, max=500, step=10, label=Batas unduhan
+// @settings      apiKey: password: default=, label=API key
+// ==/UserScript==
+```
+
+### 8.2 API `RoCat.settings`
+
+Tersedia **hanya di eksekusi Canvas** (tempat `ScriptSettingsBridge` ada); di eksekusi
+polos `typeof RoCat.settings === "undefined"`.
+
+- `RoCat.settings.<key>` — nilai dengan tipe JS yang benar: boolean → `true`/`false`,
+  number → angka, lainnya → string. Tanpa setelan kustom, bernilai default deklarasi
+  (atau default bawaan untuk key well-known seperti `autoRun`, `timeout`,
+  `downloadPath`, `maxConcurrentDownloads`).
+- `RoCat.settings.get(key)` — sama seperti akses properti; `undefined` bila tak dikenal.
+- `RoCat.settings.getAll()` — objek berisi semua nilai (termasuk method pembantu).
+- `RoCat.settings.set(key, value)` — menyimpan nilai (validasi/coercion di native) dan
+  memicu `onSettingsChanged`.
+- `RoCat.settings.setTemp(key, value)` / `getTemp(key)` — penyimpanan per-sesi
+  (hilang saat keluar kanvas).
+- `RoCat.onSettingsChanged(fn)` — daftarkan callback yang dipanggil dengan
+  `RoCat.settings` setiap kali `set` dalam eksekusi yang sama.
+- `RoCat.saveHistory(key, value)` / `RoCat.clearHistory(key)` — riwayat input; dipakai
+  otomatis oleh komponen `autocomplete` (lihat §2.7).
+- `RoCat.openSettings()` — minta aplikasi membuka halaman pengaturan skrip ini.
+
+```javascript
+function onLaunch() {
+    if (RoCat.settings.quality) {
+        RoCatUI.addText("Kualitas: " + RoCat.settings.quality, "body");
+    }
+    RoCatUI.addButton("Mulai", "run");
+}
+function run() {
+    var batch = Math.min(RoCat.settings.limit || 50, 500);
+    // ... menggunakan apiKey bila tersedia
+}
+```
+
+### 8.3 Ekspor / Impor
+
+Halaman pengaturan skrip memiliki **Reset to default**, **Export** (JSON
+`{ "settings": { ... } }` yang bisa disalin), dan **Import** (tempel payload serupa).
+Nilai yang tidak valid (mis. number di luar `min`/`max`, select bukan opsi) di-coerce
+saat impor.
+
 # Fase 34: Penyimpanan media dan screenshot
 
 - `RoCatUI.addImage(url, title, true, headers)` menampilkan tombol unduh. Unduhan memakai

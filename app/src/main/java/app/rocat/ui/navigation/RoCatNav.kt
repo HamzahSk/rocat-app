@@ -33,6 +33,7 @@ import app.rocat.ui.canvas.ScriptCanvasScreen
 import app.rocat.ui.detail.ScriptDetailScreen
 import app.rocat.ui.import.ImportScriptScreen
 import app.rocat.ui.scripts.ScriptsScreen
+import app.rocat.ui.settings.ScriptSettingsScreen
 import app.rocat.ui.settings.SettingsScreen
 import app.rocat.ui.settings.StorageSetupScreen
 
@@ -44,6 +45,8 @@ sealed interface Screen {
     data object Browser : Screen
     /** The script-driven blank canvas (the script draws its own UI via `RoCatUI`). */
     data class Canvas(val scriptId: String) : Screen
+    /** Per-script settings page driven by `@settings` metadata (Tahap 35). */
+    data class ScriptSettings(val scriptId: String) : Screen
     data object Settings : Screen
 }
 
@@ -53,6 +56,7 @@ private const val KEY_BROWSER = "browser"
 private const val KEY_SETTINGS = "settings"
 private const val KEY_DETAIL_PREFIX = "detail:"
 private const val KEY_CANVAS_PREFIX = "canvas:"
+private const val KEY_SCRIPT_SETTINGS_PREFIX = "script_settings:"
 
 private fun encode(screen: Screen): String = when (screen) {
     is Screen.Scripts -> KEY_SCRIPTS
@@ -61,6 +65,7 @@ private fun encode(screen: Screen): String = when (screen) {
     is Screen.Settings -> KEY_SETTINGS
     is Screen.Detail -> KEY_DETAIL_PREFIX + screen.scriptId
     is Screen.Canvas -> KEY_CANVAS_PREFIX + screen.scriptId
+    is Screen.ScriptSettings -> KEY_SCRIPT_SETTINGS_PREFIX + screen.scriptId
 }
 
 private fun decode(key: String): Screen = when {
@@ -70,6 +75,7 @@ private fun decode(key: String): Screen = when {
     key == KEY_SETTINGS -> Screen.Settings
     key.startsWith(KEY_DETAIL_PREFIX) -> Screen.Detail(key.removePrefix(KEY_DETAIL_PREFIX))
     key.startsWith(KEY_CANVAS_PREFIX) -> Screen.Canvas(key.removePrefix(KEY_CANVAS_PREFIX))
+    key.startsWith(KEY_SCRIPT_SETTINGS_PREFIX) -> Screen.ScriptSettings(key.removePrefix(KEY_SCRIPT_SETTINGS_PREFIX))
     else -> Screen.Scripts
 }
 
@@ -174,7 +180,12 @@ private fun RoCatAppNav(initialUrl: String? = null) {
                 is Screen.Import -> ImportScriptScreen(onBack = ::goBack)
                 is Screen.Browser -> BrowserScreen(initialUrl = initialUrl)
                 is Screen.Settings -> SettingsScreen()
-                is Screen.Canvas -> ScriptCanvasScreen(scriptId = current.scriptId, onBack = ::goBack)
+                is Screen.Canvas -> ScriptCanvasScreen(
+                    scriptId = current.scriptId,
+                    onBack = ::goBack,
+                    onOpenSettings = { navigate(Screen.ScriptSettings(current.scriptId)) },
+                )
+                is Screen.ScriptSettings -> ScriptSettingsScreen(scriptId = current.scriptId, onBack = ::goBack)
             }
         }
     }

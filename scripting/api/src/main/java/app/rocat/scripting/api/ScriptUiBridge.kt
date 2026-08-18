@@ -170,4 +170,81 @@ interface ScriptUiBridge {
             ""
         }
     }
+
+    // --- Tahap 35: flexible canvas layouts & rich input controls ---
+
+    /** Renders static [content] text with a named [style] (`heading`/`title`/`body`/`caption`). */
+    fun addText(content: String, style: String = "body") {
+        // Default no-op keeps existing implementations / test recorders valid.
+    }
+
+    /** Renders a horizontal separator line of [thickness] px in [color]. */
+    fun addDivider(thickness: Int = 1, color: String = "#cccccc") {
+        // Default no-op.
+    }
+
+    /** Renders a checkbox identified by [id] with [label]. */
+    fun addCheckbox(id: String, label: String, checked: Boolean = false) {
+        // Default no-op.
+    }
+
+    /** Renders an ON/OFF switch identified by [id] with [label]. */
+    fun addToggle(id: String, label: String, checked: Boolean = false) {
+        // Default no-op.
+    }
+
+    /** Renders a dropdown identified by [id] offering [options], initially [selected]. */
+    fun addDropdown(id: String, options: List<String>, selected: String, label: String = "") {
+        // Default no-op.
+    }
+
+    /** Renders a number field identified by [id] with optional [min]/[max]/[step]. */
+    fun addNumber(id: String, value: Double?, min: Double?, max: Double?, step: Double?, label: String = "") {
+        // Default no-op.
+    }
+
+    /** Renders a color picker identified by [id] starting at [color] (hex string). */
+    fun addColorPicker(id: String, color: String, label: String = "") {
+        // Default no-op.
+    }
+
+    /** Renders a multi-line text area identified by [id]. */
+    fun addTextArea(id: String, hint: String, rows: Int = 3, value: String = "") {
+        // Default no-op.
+    }
+
+    /**
+     * Renders an autocomplete text field identified by [id]. [suggestions] are static
+     * script-provided hints; a non-blank [historyKey] enables persisted per-script
+     * history suggestions.
+     */
+    fun addAutocomplete(
+        id: String,
+        hint: String,
+        suggestions: List<String>,
+        historyKey: String,
+        maxHistory: Int,
+        showHistory: Boolean,
+        showClearHistory: Boolean,
+        value: String = "",
+    ) {
+        // Default no-op.
+    }
+
+    /** Renders a titled, collapsible [ScriptUIComponent.Group] from [childrenJson]. */
+    fun addGroup(title: String, collapsed: Boolean, childrenJson: String) {
+        // Default no-op.
+    }
+
+    /** Renders a flexible [ScriptUIComponent.Layout] (row/column/grid) from [childrenJson]. */
+    fun addLayout(
+        layout: String,
+        columns: Int,
+        padding: Int,
+        divider: Boolean,
+        childrenJson: String,
+        flex: Int? = null,
+    ) {
+        // Default no-op.
+    }
 }

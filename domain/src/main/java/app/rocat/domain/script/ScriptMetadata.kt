@@ -17,4 +17,10 @@ data class ScriptMetadata(
     val category: String = "",
     /** Merged `@match` + `@include` allow-list. */
     val matches: List<String> = emptyList(),
+    /**
+     * User-editable settings declared via `@settings` metadata tags (Tahap 35). Each
+     * entry describes a typed, labeled control the app renders in the per-script
+     * settings page and exposes to the script through `RoCat.settings`.
+     */
+    val settings: List<ScriptSetting> = emptyList(),
 )

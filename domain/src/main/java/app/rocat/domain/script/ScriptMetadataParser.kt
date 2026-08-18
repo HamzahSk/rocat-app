@@ -13,6 +13,10 @@ object ScriptMetadataParser {
     private val tagLine = Regex("^\\s*//\\s*@(\\w+)\\s*(.*?)\\s*$")
     private val continuationLine = Regex("^\\s*//\\s+(?!@)(.*?)\\s*$")
     private val multiLineTags = setOf("description", "author")
+    /** `key: type: ...` — the trailing `.*` is non-greedy-safe for any extra colons. */
+    private val settingLine = Regex("""^\s*(\w+)\s*:\s*(\w+)\s*:\s*(.*)$""")
+    /** `name=value` pairs where the value runs until the next `, name=` boundary. */
+    private val parameterTokens = Regex("""(\w+)\s*=\s*(.*?)(?=,\s*\w+\s*=|\s*$)""")
 
     fun parse(source: String): ScriptMetadata {
         val block = userScriptBlock.find(source)?.groupValues?.getOrNull(1)
@@ -49,6 +53,47 @@ object ScriptMetadataParser {
             icon = (tags["icon"] ?: tags["iconurl"] ?: emptyList()).firstOrNull()?.trim().orEmpty(),
             category = (tags["category"] ?: tags["group"] ?: emptyList()).firstOrNull()?.trim().orEmpty(),
             matches = matches.map { it.trim() }.filter { it.isNotEmpty() },
+            settings = (tags["settings"].orEmpty()).mapNotNull { parseSetting(it) },
+        )
+    }
+
+    /**
+     * Parses a single `@settings key: type: param=value, ...` line. The first two
+     * colon-separated segments are the key and the type; everything after the second
+     * colon is a comma-separated list of `name=value` parameters. `options=a,b,c` is
+     * greedy so commas inside the option list never split the value early.
+     */
+    private fun parseSetting(line: String): ScriptSetting? {
+        val match = settingLine.find(line) ?: return null
+        val key = match.groupValues[1].trim()
+        val type = ScriptSettingType.fromWire(match.groupValues[2])
+        if (key.isEmpty()) return null
+
+        val params = linkedMapOf<String, String>()
+        parameterTokens.findAll(match.groupValues[3]).forEach { m ->
+            val name = m.groupValues[1].trim()
+            if (name.isNotEmpty()) params[name] = m.groupValues[2].trim()
+        }
+
+        fun doubleParam(name: String): Double? = params[name]?.toDoubleOrNull()
+        fun intParam(name: String): Int? = params[name]?.toIntOrNull()
+
+        return ScriptSetting(
+            key = key,
+            type = type,
+            defaultValue = params["default"].orEmpty(),
+            label = params["label"].orEmpty(),
+            placeholder = params["placeholder"].orEmpty(),
+            maxLength = intParam("maxLength"),
+            min = doubleParam("min"),
+            max = doubleParam("max"),
+            step = doubleParam("step"),
+            options = params["options"]
+                .orEmpty()
+                .split(',')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() },
+            rows = intParam("rows"),
         )
     }
 }
