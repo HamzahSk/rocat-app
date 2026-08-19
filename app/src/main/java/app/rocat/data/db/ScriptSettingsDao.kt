@@ -23,4 +23,7 @@ interface ScriptSettingsDao {
 
     @Query("DELETE FROM script_settings WHERE script_id = :scriptId AND `key` = :key")
     suspend fun delete(scriptId: String, key: String)
+
+    @Query("DELETE FROM script_settings WHERE script_id = :scriptId AND `key` LIKE :keyPattern")
+    suspend fun deleteStorage(scriptId: String, keyPattern: String)
 }

@@ -614,13 +614,16 @@ private class RoCatUiBridge(
         })
         put("addLayout", this, Fn { args ->
             runSafe {
-                ui.addLayout(
+                ui.addLayoutOptions(
                     argString(args, 0, "column"),
                     argInt(args, 1, 2),
                     argInt(args, 2, 0),
                     argBoolean(args, 3),
                     argJson(args, 4),
                     argInt(args, 5, 0).takeIf { it > 0 },
+                    argInt(args, 6, 16),
+                    argInt(args, 7, 8),
+                    argString(args, 8, "start"),
                 )
             }
         })
@@ -731,6 +734,12 @@ const val RO_CAT_SETTINGS_WRAPPER_JS: String = """
     };
 
     RoCat.settings = base;
+    RoCat.storage = {
+        set: function (key, value) { var b = bridge(); if (b) { try { b.storageSet(String(key), String(value)); } catch (e) {} } },
+        get: function (key) { var b = bridge(); if (!b) return null; try { return b.storageGet(String(key)); } catch (e) { return null; } },
+        remove: function (key) { var b = bridge(); if (b) { try { b.storageRemove(String(key)); } catch (e) {} } },
+        clear: function () { var b = bridge(); if (b) { try { b.storageClear(); } catch (e) {} } }
+    };
     RoCat.onSettingsChanged = function (fn) {
         if (typeof fn === "function") callbacks.push(fn);
     };
@@ -766,6 +775,10 @@ private class RoCatSettingsBridgeObject(
         put("getTemp", this, Fn { args -> runSafeValue(null) { bridge.getTemp(argString(args, 0)) } })
         put("saveHistory", this, Fn { args -> runSafe { bridge.saveHistory(argString(args, 0), argString(args, 1)) } })
         put("clearHistory", this, Fn { args -> runSafe { bridge.clearHistory(argString(args, 0)) } })
+        put("storageSet", this, Fn { args -> runSafe { bridge.storageSet(argString(args, 0), argString(args, 1)) } })
+        put("storageGet", this, Fn { args -> runSafeValue(null) { bridge.storageGet(argString(args, 0)) } })
+        put("storageRemove", this, Fn { args -> runSafe { bridge.storageRemove(argString(args, 0)) } })
+        put("storageClear", this, Fn { runSafe { bridge.storageClear() } })
         put("openSettings", this, Fn { runSafe { bridge.openSettings() } })
     }
 

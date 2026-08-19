@@ -1259,3 +1259,10 @@ saat impor.
   Tinggi full-page dibatasi agar bitmap halaman sangat panjang tidak menyebabkan OOM.
 - Jika pengguna mengganti direktori utama di Pengaturan, seluruh output scrape berikutnya
   otomatis menggunakan grant SAF baru. Skrip tidak perlu meminta izin storage legacy.
+# Fase 36: Komik Reader dan Layout Konsisten
+
+Layout deklaratif mendukung `margin`, `spacing`, dan `align` pada `type: "layout"`; nilai default masing-masing adalah 16, 8, dan `start`. API lama tetap tersedia.
+
+Storage persisten per skrip tersedia melalui `RoCat.storage.set(key,value)`, `get(key)`, `remove(key)`, dan `clear()`. Data tidak bercampur antar skrip dan cocok untuk bookmark serta progress chapter.
+
+Template referensi lengkap tersedia di `templates/komik-reader-template.js`. Template ini menggunakan ES5/Rhino 1.7.15 dan mempertahankan pola callback sinkron untuk kompatibilitas skrip lama.

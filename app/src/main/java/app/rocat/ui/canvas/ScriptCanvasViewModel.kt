@@ -249,6 +249,9 @@ class ScriptCanvasViewModel(
         ) = postUi(uiSession) {
             uiComponents.add(ScriptUIComponent.Layout(layout, columns, padding, divider, flex, parseComponents(childrenJson)))
         }
+        override fun addLayoutOptions(layout: String, columns: Int, padding: Int, divider: Boolean, childrenJson: String, flex: Int?, margin: Int, spacing: Int, align: String) = postUi(uiSession) {
+            uiComponents.add(ScriptUIComponent.Layout(layout, columns, padding, divider, flex, parseComponents(childrenJson), margin, spacing, align))
+        }
     }
 
     /** Builds a fresh engine/environment pair per call. The per-script settings bridge

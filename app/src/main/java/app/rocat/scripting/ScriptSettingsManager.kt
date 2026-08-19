@@ -39,6 +39,7 @@ import java.util.concurrent.ConcurrentHashMap
 class ScriptSettingsManager(
     private val database: AppDatabase,
 ) {
+    private companion object { const val STORAGE_PREFIX = "__storage__:" }
 
     /** In-memory per-script session values (scriptId -> key -> value). */
     private val tempStore = ConcurrentHashMap<String, MutableMap<String, String>>()
@@ -155,6 +156,7 @@ class ScriptSettingsManager(
 
         override fun snapshot(): Map<String, String> {
             val persisted = runBlockingIo { database.scriptSettingsDao().getAll(script.id) }
+                .filterNot { it.key.startsWith(STORAGE_PREFIX) }
                 .associate { it.key to it.value }
             val declaredDefaults = declared.associate { it.key to it.normalizedDefault }
             val implicit = ScriptDefaultSettings.defaults.mapValues { it.value.value }
@@ -190,6 +192,23 @@ class ScriptSettingsManager(
 
         override fun openSettings() {
             openSettingsRequests.tryEmit(script.id)
+        }
+
+        override fun storageSet(key: String, value: String) = runBlockingIo {
+            if (key.isBlank()) return@runBlockingIo
+            database.scriptSettingsDao().upsert(ScriptSettingEntity(script.id, STORAGE_PREFIX + key, value, "storage"))
+        }
+
+        override fun storageGet(key: String): String? = runBlockingIo {
+            database.scriptSettingsDao().get(script.id, STORAGE_PREFIX + key)?.value
+        }
+
+        override fun storageRemove(key: String) = runBlockingIo {
+            database.scriptSettingsDao().delete(script.id, STORAGE_PREFIX + key)
+        }
+
+        override fun storageClear() = runBlockingIo {
+            database.scriptSettingsDao().deleteStorage(script.id, STORAGE_PREFIX + "%")
         }
     }
 

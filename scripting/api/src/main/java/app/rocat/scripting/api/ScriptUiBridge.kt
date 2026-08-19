@@ -247,4 +247,8 @@ interface ScriptUiBridge {
     ) {
         // Default no-op.
     }
+
+    fun addLayoutOptions(layout: String, columns: Int, padding: Int, divider: Boolean, childrenJson: String, flex: Int?, margin: Int, spacing: Int, align: String) {
+        addLayout(layout, columns, padding, divider, childrenJson, flex)
+    }
 }

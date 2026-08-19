@@ -188,7 +188,7 @@ var RoCat = (function () {
             if (type === "layout") {
                 var layoutChildren = item.children || [];
                 if (typeof layoutChildren !== "string") layoutChildren = JSON.stringify(layoutChildren);
-                RoCatUI.addLayout(pick(item, "layout", "column"), pick(item, "columns", 2), pick(item, "padding", 0), pickBool(item, "divider", false), layoutChildren, pick(item, "flex", null));
+                RoCatUI.addLayout(pick(item, "layout", "column"), pick(item, "columns", 2), pick(item, "padding", 0), pickBool(item, "divider", false), layoutChildren, pick(item, "flex", null), pick(item, "margin", 16), pick(item, "spacing", 8), pick(item, "align", "start"));
                 return;
             }
         } catch (e) {

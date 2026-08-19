@@ -235,6 +235,9 @@ sealed class ScriptUIComponent {
         val divider: Boolean = false,
         override val flex: Int? = null,
         val children: List<ScriptUIComponent> = emptyList(),
+        val margin: Int = 16,
+        val spacing: Int = 8,
+        val align: String = "start",
     ) : ScriptUIComponent()
 }
 
@@ -418,6 +421,9 @@ fun parseComponent(element: JsonElement): ScriptUIComponent? {
             bool("divider"),
             flex,
             children(),
+            int("margin", 16),
+            int("spacing", 8),
+            str("align", "start"),
         )
         "button" -> ScriptUIComponent.Button(str("label"), str("fn").ifBlank { str("function") }.ifBlank { str("onClick") }, flex)
         "alert" -> ScriptUIComponent.Alert(str("message").ifBlank { str("text") }, str("level", "info"), flex)

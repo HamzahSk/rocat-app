@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         CGBUM Reader
-// @version      1.0.3
+// @version      1.1.0
 // @description  Baca komik dari CGBUM (manga, manhwa, manhua) dengan dukungan pencarian, filter, dan pembaca gambar.
 // @author       RoCat AI
 // @category     Komik
@@ -10,6 +10,8 @@
 // @settings     quality: select: default=50, options=30,50,70,90, label=Kualitas Gambar (WP Proxy)
 // @settings     useWpProxy: boolean: default=true, label=Gunakan WordPress Proxy (hemat kuota)
 // @settings     proxyUrl: string: default=, label=Custom Proxy URL (kosongkan jika tidak pakai)
+// @settings     readingMode: select: options=single,scroll,webtoon, default=single, label=Mode Baca
+// @settings     autoSaveProgress: boolean: default=true, label=Simpan Progress Otomatis
 // ==/UserScript==
 
 var BASE_URL = "https://cgbum.com";
@@ -21,6 +23,11 @@ var _state = {
     chapterPages: [],
     chapterTitle: ""
 };
+
+function saveReadingProgress(chapter) {
+    if (RoCat.settings.autoSaveProgress === false || !chapter) return;
+    RoCat.storage.set("progress:last", JSON.stringify({ title: chapter.title || "Chapter", url: chapter.url || "" }));
+}
 
 // --- String helper ---
 function substringAfter(str, prefix) {
@@ -97,11 +104,11 @@ function renderMainUI() {
     RoCat.render([
         { type: "clear" },
         { type: "text", content: "📚 CGBUM Reader", style: "title" },
-        { type: "layout", layout: "row", children: [
+        { type: "layout", layout: "row", padding: 8, margin: 16, spacing: 8, align: "center", children: [
             { type: "autocomplete", id: "keyword", hint: "Cari komik...", historyKey: "cgbum-search", flex: 3 },
             { type: "button", label: "🔍 Cari", fn: "doSearch", flex: 1 }
         ]},
-        { type: "layout", layout: "row", children: [
+        { type: "layout", layout: "row", margin: 16, spacing: 8, align: "center", children: [
             { type: "button", label: "📖 Populer", fn: "loadPopular", flex: 1 },
             { type: "button", label: "🆕 Terbaru", fn: "loadLatest", flex: 1 },
             { type: "button", label: "🔧 Filter", fn: "showFilters", flex: 1 }
@@ -434,6 +441,7 @@ function openChapter(payload) {
         // Simpan URL chapter
         _state.lastChapterUrl = chapter.url;
         _state.chapterTitle = chapter.title || "Chapter";
+        saveReadingProgress(chapter);
 
         var url = chapter.url;
         if (url.indexOf("http") !== 0) {
@@ -502,12 +510,18 @@ function openChapter(payload) {
         var quality = RoCat.settings.quality || "50";
         var proxyUrl = RoCat.settings.proxyUrl || "";
 
-        // Tampilkan halaman pertama sebagai pratinjau
-        var firstImage = imageUrls[0];
-        if (firstImage) {
-            var finalUrl = processImageUrl(firstImage, useWpProxy, quality, proxyUrl);
-            RoCatUI.addImage(finalUrl, "📄 Halaman 1 / " + imageUrls.length, true, headers);
+        var readingMode = RoCat.settings.readingMode || "single";
+        if (readingMode === "scroll" || readingMode === "webtoon") {
+            for (var pageIndex = 0; pageIndex < imageUrls.length; pageIndex++) {
+                var pageUrl = processImageUrl(imageUrls[pageIndex], useWpProxy, quality, proxyUrl);
+                RoCatUI.addImage(pageUrl, readingMode === "webtoon" ? "" : "📄 " + (pageIndex + 1) + " / " + imageUrls.length, readingMode !== "webtoon", headers);
+            }
+            RoCatUI.addAlert("✅ " + imageUrls.length + " halaman dimuat dalam mode " + readingMode, "success");
+            return;
         }
+
+        var firstImage = imageUrls[0];
+        if (firstImage) RoCatUI.addImage(processImageUrl(firstImage, useWpProxy, quality, proxyUrl), "📄 Halaman 1 / " + imageUrls.length, true, headers);
 
         // Tampilkan grid mini dari semua halaman (thumbnail)
         var thumbItems = [];

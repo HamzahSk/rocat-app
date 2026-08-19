@@ -46,4 +46,10 @@ interface ScriptSettingsBridge {
 
     /** Asks the host to navigate to this script's settings page. */
     fun openSettings() = Unit
+
+    /** Persistent arbitrary key/value storage isolated to this script. */
+    fun storageSet(key: String, value: String) = Unit
+    fun storageGet(key: String): String? = null
+    fun storageRemove(key: String) = Unit
+    fun storageClear() = Unit
 }

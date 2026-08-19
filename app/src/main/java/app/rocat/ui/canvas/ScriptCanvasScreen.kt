@@ -749,14 +749,18 @@ private fun LayoutComponent(
     historyFor: (String) -> List<String>?,
 ) {
     val pad = component.padding.coerceIn(0, 32)
+    val margin = component.margin.coerceIn(0, 32)
+    val spacing = component.spacing.coerceIn(0, 32)
+    val alignment = when (component.align) { "center" -> Alignment.CenterVertically; "end" -> Alignment.Bottom; else -> Alignment.Top }
     when (component.layout) {
         "row" -> {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = pad.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = margin.dp),
+                verticalAlignment = alignment,
+                horizontalArrangement = Arrangement.spacedBy(spacing.dp),
             ) {
                 component.children.forEachIndexed { index, child ->
-                    if (index > 0 && component.divider) Spacer(Modifier.width(8.dp))
+                    if (index > 0 && component.divider) Spacer(Modifier.width(spacing.dp))
                     Box(modifier = Modifier.weight(child.flexWeight.toFloat())) {
                         RenderComponent(
                             component = child,
@@ -780,14 +784,15 @@ private fun LayoutComponent(
         "grid" -> {
             val columns = component.columns.coerceIn(1, 8)
             val chunks = component.children.chunked(columns)
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = pad.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = margin.dp), verticalArrangement = Arrangement.spacedBy(spacing.dp)) {
                 chunks.forEach { chunk ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = alignment,
+                        horizontalArrangement = Arrangement.spacedBy(spacing.dp),
                     ) {
                         chunk.forEachIndexed { index, child ->
-                            if (index > 0 && component.divider) Spacer(Modifier.width(8.dp))
+                            if (index > 0 && component.divider) Spacer(Modifier.width(spacing.dp))
                             Box(modifier = Modifier.weight(1f)) {
                                 RenderComponent(
                                     component = child,
@@ -809,13 +814,12 @@ private fun LayoutComponent(
                             Spacer(modifier = Modifier.weight(1f))
                         }
                     }
-                    Spacer(Modifier.height(4.dp))
                 }
             }
         }
 
         else -> {
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = pad.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = margin.dp).padding(pad.dp), verticalArrangement = Arrangement.spacedBy(spacing.dp)) {
                 component.children.forEachIndexed { index, child ->
                     if (index > 0 && component.divider) HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     RenderComponent(
@@ -832,7 +836,6 @@ private fun LayoutComponent(
                         onClearHistory = onClearHistory,
                         historyFor = historyFor,
                     )
-                    Spacer(Modifier.height(4.dp))
                 }
             }
         }
