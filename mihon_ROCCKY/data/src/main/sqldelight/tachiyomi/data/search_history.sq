@@ -1,0 +1,57 @@
+-- Membuat tabel riwayat pencarian
+CREATE TABLE search_history(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    source INTEGER NOT NULL,         -- ID ekstensi/source
+    search_query TEXT NOT NULL,      -- Kata kunci pencarian
+    date_searched INTEGER NOT NULL,  -- Waktu pencarian (timestamp)
+    -- Jika mencari kata yang sama di ekstensi yang sama, otomatis replace (timpa) agar waktunya jadi yang terbaru
+    UNIQUE(source, search_query) ON CONFLICT REPLACE
+);
+
+-- Membuat index agar pencarian berdasarkan source lebih cepat
+CREATE INDEX idx_search_history_source ON search_history(source);
+
+-- [INTI FITUR MAKSIMAL 8 HISTORY]
+-- Trigger ini akan berjalan otomatis setiap kali ada history baru yang dimasukkan
+CREATE TRIGGER limit_search_history AFTER INSERT ON search_history
+BEGIN
+    DELETE FROM search_history
+    WHERE _id IN (
+        -- Mengambil data ke-9 dan seterusnya (paling lama) untuk source yang sama
+        SELECT _id
+        FROM search_history
+        WHERE source = new.source
+        ORDER BY date_searched DESC
+        LIMIT -1 OFFSET 8
+    );
+END;
+
+-- =====================================
+-- KUMPULAN FUNGSI (QUERIES)
+-- =====================================
+
+-- 1. Menyimpan riwayat pencarian baru
+insert:
+INSERT INTO search_history(source, search_query, date_searched)
+VALUES (:sourceId, :searchQuery, :dateSearched);
+
+-- 2. Mengambil riwayat pencarian berdasarkan ekstensi (source)
+getHistoryBySource:
+SELECT search_query
+FROM search_history
+WHERE source = :sourceId
+ORDER BY date_searched DESC;
+
+-- 3. Menghapus satu riwayat pencarian tertentu (misal user klik "X" di history)
+deleteQuery:
+DELETE FROM search_history
+WHERE source = :sourceId AND search_query = :searchQuery;
+
+-- 4. Menghapus semua riwayat pencarian untuk ekstensi tertentu
+deleteAllBySource:
+DELETE FROM search_history
+WHERE source = :sourceId;
+
+-- 5. Menghapus semua riwayat pencarian di semua ekstensi (Clear all history)
+deleteAll:
+DELETE FROM search_history;

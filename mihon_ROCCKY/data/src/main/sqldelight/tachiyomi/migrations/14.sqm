@@ -1,0 +1,24 @@
+-- Create search history table
+CREATE TABLE search_history(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    source INTEGER NOT NULL,
+    search_query TEXT NOT NULL,
+    date_searched INTEGER NOT NULL,
+    UNIQUE(source, search_query) ON CONFLICT REPLACE
+);
+
+-- Create index for performance
+CREATE INDEX idx_search_history_source ON search_history(source);
+
+-- Create trigger to limit history to 8 items per source
+CREATE TRIGGER limit_search_history AFTER INSERT ON search_history
+BEGIN
+    DELETE FROM search_history
+    WHERE _id IN (
+        SELECT _id
+        FROM search_history
+        WHERE source = new.source
+        ORDER BY date_searched DESC
+        LIMIT -1 OFFSET 8
+    );
+END;
