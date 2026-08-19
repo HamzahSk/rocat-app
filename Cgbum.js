@@ -338,8 +338,7 @@ function openDetail(payload) {
         }
 
         RoCatUI.clear();
-        RoCatUI.addButton("🏠 Home", "onLaunch");
-        RoCatUI.addButton("🔙 Kembali", "loadPopular");
+        RoCatUI.render({type:"layout",layout:"row",margin:8,spacing:8,children:[{type:"button",label:"🏠 Home",fn:"onLaunch",flex:1},{type:"button",label:"🔙 Kembali",fn:"loadPopular",flex:1}]});
         RoCatUI.log("⏳ Memuat detail: " + (item.title || "Komik"));
 
         var res = fetch(url, "GET", {}, null);
@@ -449,15 +448,15 @@ function openChapter(payload) {
         }
 
         RoCatUI.clear();
-        RoCatUI.addButton("🏠 Home", "onLaunch");
-        RoCatUI.addButton("🔙 Detail", function() {
+        RoCatUI.render({type:"layout",layout:"row",margin:8,spacing:8,children:[{type:"button",label:"🏠 Home",fn:"onLaunch",flex:1},{type:"button",label:"🔙 Detail",fn:"backToDetail",flex:1}]});
+        function backToDetail() {
             if (_state.lastDetailUrl) {
                 var item = { url: _state.lastDetailUrl };
                 openDetail(JSON.stringify(item));
             } else {
                 loadPopular();
             }
-        });
+        }
         RoCatUI.log("⏳ Membuka chapter: " + (chapter.title || "Chapter"));
 
         var res = fetch(url, "GET", {}, null);
@@ -514,7 +513,7 @@ function openChapter(payload) {
         if (readingMode === "scroll" || readingMode === "webtoon") {
             for (var pageIndex = 0; pageIndex < imageUrls.length; pageIndex++) {
                 var pageUrl = processImageUrl(imageUrls[pageIndex], useWpProxy, quality, proxyUrl);
-                RoCatUI.addImage(pageUrl, readingMode === "webtoon" ? "" : "📄 " + (pageIndex + 1) + " / " + imageUrls.length, readingMode !== "webtoon", headers);
+                RoCatUI.addImage(pageUrl, readingMode === "webtoon" ? "" : "📄 " + (pageIndex + 1) + " / " + imageUrls.length, readingMode !== "webtoon", headers, readingMode === "webtoon");
             }
             RoCatUI.addAlert("✅ " + imageUrls.length + " halaman dimuat dalam mode " + readingMode, "success");
             return;
@@ -623,7 +622,7 @@ function readAllPages() {
         // Tampilkan semua halaman dalam satu view (scrollable)
         for (var i = 0; i < pages.length; i++) {
             var finalUrl = processImageUrl(pages[i], useWpProxy, quality, proxyUrl);
-            RoCatUI.addImage(finalUrl, "📄 Halaman " + (i + 1) + "/" + pages.length, true, headers);
+        RoCatUI.addImage(finalUrl, "📄 Halaman " + (i + 1) + "/" + pages.length, true, headers, true);
         }
 
         RoCatUI.addAlert("✅ Selesai memuat semua halaman", "success");

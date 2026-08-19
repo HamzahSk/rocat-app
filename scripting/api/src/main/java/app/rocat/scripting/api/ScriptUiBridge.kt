@@ -43,6 +43,15 @@ interface ScriptUiBridge {
         headers: Map<String, String> = emptyMap(),
     )
 
+    /** Webtoon rendering variant; default delegates to the legacy card renderer. */
+    fun addImage(
+        url: String,
+        title: String = "",
+        allowDownload: Boolean = true,
+        headers: Map<String, String> = emptyMap(),
+        seamless: Boolean = false,
+    ) = addImage(url, title, allowDownload, headers)
+
     /**
      * Renders a video preview card (Tahap 18.2/18.3) with an inline Media3 (ExoPlayer)
      * player and a download button. Set [isStreamHls] to `true` for `.m3u8` streams so

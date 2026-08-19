@@ -128,13 +128,16 @@ class ScriptCanvasViewModel(
             uiComponents.add(ScriptUIComponent.Button(label, functionName))
         }
         override fun thumbnailPreview(url: String) = postUi(uiSession) {
-            uiComponents.add(ScriptUIComponent.Image(url, "", true, resolveHeaders(emptyMap(), url)))
+            uiComponents.add(ScriptUIComponent.Image(url = url, headers = resolveHeaders(emptyMap(), url)))
         }
         override fun videoPreview(url: String) = postUi(uiSession) {
             uiComponents.add(ScriptUIComponent.Video(url, "", false, true, resolveHeaders(emptyMap(), url)))
         }
         override fun addImage(url: String, title: String, allowDownload: Boolean, headers: Map<String, String>) = postUi(uiSession) {
             uiComponents.add(ScriptUIComponent.Image(url, title, allowDownload, resolveHeaders(headers, url)))
+        }
+        override fun addImage(url: String, title: String, allowDownload: Boolean, headers: Map<String, String>, seamless: Boolean) = postUi(uiSession) {
+            uiComponents.add(ScriptUIComponent.Image(url, title, allowDownload, resolveHeaders(headers, url), seamless))
         }
         override fun addVideo(url: String, title: String, isStreamHls: Boolean, allowDownload: Boolean, headers: Map<String, String>) = postUi(uiSession) {
             uiComponents.add(ScriptUIComponent.Video(url, title, isStreamHls, allowDownload, resolveHeaders(headers, url)))

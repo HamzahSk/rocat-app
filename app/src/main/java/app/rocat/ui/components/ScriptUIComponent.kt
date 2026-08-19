@@ -46,6 +46,7 @@ sealed class ScriptUIComponent {
         val title: String = "",
         val allowDownload: Boolean = true,
         val headers: Map<String, String> = emptyMap(),
+        val seamless: Boolean = false,
         override val flex: Int? = null,
     ) : ScriptUIComponent()
 
@@ -446,7 +447,13 @@ fun parseComponent(element: JsonElement): ScriptUIComponent? {
         "html" -> ScriptUIComponent.HtmlPreview(str("html").ifBlank { str("content") }, str("title"), flex)
         "audio" -> ScriptUIComponent.Audio(str("url"), str("title"), bool("download", true), emptyMap(), flex)
         "video" -> ScriptUIComponent.Video(str("url"), str("title"), bool("hls"), bool("download", true), emptyMap(), flex)
-        "image" -> ScriptUIComponent.Image(str("url").ifBlank { str("src") }, str("title"), bool("download", true), emptyMap(), flex)
+        "image" -> ScriptUIComponent.Image(
+            url = str("url").ifBlank { str("src") },
+            title = str("title"),
+            allowDownload = bool("download", true),
+            seamless = bool("seamless"),
+            flex = flex,
+        )
         else -> null
     }
 }

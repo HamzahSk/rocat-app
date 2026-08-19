@@ -181,7 +181,9 @@ fun ScriptCanvasScreen(
                             onClearHistory = viewModel::clearHistory,
                             historyFor = { viewModel.historyState[it] },
                         )
-                        Spacer(Modifier.height(4.dp))
+                        if (component !is ScriptUIComponent.Image || !component.seamless) {
+                            Spacer(Modifier.height(4.dp))
+                        }
                     }
                 }
 
@@ -229,6 +231,7 @@ private fun RenderComponent(
             title = component.title,
             allowDownload = component.allowDownload,
             headers = component.headers,
+            seamless = component.seamless,
             folder = folder,
             successMessage = stringResource(StringKey.imageSaved),
             failureMessage = stringResource(StringKey.downloadFailed),

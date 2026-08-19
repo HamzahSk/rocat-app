@@ -55,11 +55,13 @@ fun ImagePreviewCard(
     folder: () -> DocumentFile?,
     successMessage: String,
     failureMessage: String,
+    seamless: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val downloader = rememberMediaDownloaderState()
     val context = LocalContext.current
     var fullScreen by remember { mutableStateOf(false) }
+    var loadFailed by remember(url, headers) { mutableStateOf(false) }
     val imageRequest = remember(url, headers) {
         ImageRequest.Builder(context).data(url).apply {
             if (headers.isNotEmpty()) {
@@ -72,9 +74,9 @@ fun ImagePreviewCard(
         }.build()
     }
 
-    ElevatedCard(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    val content: @Composable () -> Unit = {
         Column(modifier = Modifier.fillMaxWidth()) {
-            if (title.isNotBlank()) {
+            if (title.isNotBlank() && !seamless) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
@@ -87,13 +89,21 @@ fun ImagePreviewCard(
                 AsyncImage(
                     model = imageRequest,
                     contentDescription = title.ifBlank { "Script image preview" },
-                    contentScale = ContentScale.Fit,
+                    contentScale = ContentScale.FillWidth,
+                    onError = { loadFailed = true },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 300.dp)
-                        .padding(8.dp)
+                        .heightIn(min = 120.dp)
+                        .then(if (seamless) Modifier else Modifier.padding(8.dp))
                         .clickable { fullScreen = true },
                 )
+                if (loadFailed) {
+                    Text(
+                        text = "Gagal memuat gambar",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
                 if (allowDownload) {
                     DownloadActionButton(
                         status = downloader.status,
@@ -113,6 +123,11 @@ fun ImagePreviewCard(
                 }
             }
         }
+    }
+    if (seamless) {
+        Box(modifier = modifier.fillMaxWidth()) { content() }
+    } else {
+        ElevatedCard(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) { content() }
     }
     if (fullScreen) {
         Dialog(

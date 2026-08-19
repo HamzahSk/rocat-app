@@ -106,3 +106,4 @@ Proyek: `rocat-app` — Android app modular ala Mihon untuk mengelola & menjalan
   ke Logcat tag `WebViewJS-Console`. Log console aktual belum dapat dikumpulkan tanpa
   menjalankan APK pada emulator/device; gunakan `adb logcat -s WebViewJS-Console` untuk
   membedakan React hydration/CSP error dari kegagalan renderer/layout.
+# Tahap 37 (2026-08-19): Coil image bounding diperbaiki dengan `fillMaxWidth` + `ContentScale.FillWidth`, tinggi minimum/loading-error fallback, dan header `Referer` tetap diteruskan melalui `NetworkHeaders`. `RoCatUI.addImage(..., seamless)` backward-compatible (default `false`) untuk mode webtoon edge-to-edge tanpa card/padding/elevasi.

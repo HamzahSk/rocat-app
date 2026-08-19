@@ -488,6 +488,7 @@ private class RoCatUiBridge(
                     title = argString(args, 1),
                     allowDownload = argBoolean(args, 2, true),
                     headers = argHeaders(args, 3),
+                    seamless = argBoolean(args, 4),
                 )
             }
         })
