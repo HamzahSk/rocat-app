@@ -3,6 +3,7 @@ package app.rocat.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -37,7 +38,7 @@ import coil3.request.ImageRequest
 private val GridSpacing = 8.dp
 
 /** Fixed tile height so the grid's total height can be measured for the parent column. */
-private val GridTileHeight = 180.dp
+private val GridTileHeight = 196.dp
 
 /**
  * The mihon-style media grid produced by `RoCatUI.addGrid(...)`. Rendered as a
@@ -55,25 +56,23 @@ fun GridComponent(
     val items = grid.items
     if (items.isEmpty()) return
 
-    val columns = grid.columns.coerceIn(1, 8)
-    val rows = (items.size + columns - 1) / columns
-    val totalHeight = GridTileHeight * rows + GridSpacing * (rows - 1)
-
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
-        modifier = modifier.fillMaxWidth().height(totalHeight),
-        userScrollEnabled = false,
-        horizontalArrangement = Arrangement.spacedBy(GridSpacing),
-        verticalArrangement = Arrangement.spacedBy(GridSpacing),
-        contentPadding = PaddingValues(vertical = 4.dp),
-    ) {
-        items(count = items.size, key = { index -> index }) { index ->
-            val item = items[index]
-            GridTile(
-                item = item,
-                height = GridTileHeight,
-                onClick = { onItemClick(item) },
-            )
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val adaptive = 132.dp
+        val columns = maxOf(1, minOf(grid.columns.coerceIn(1, 8), (maxWidth / adaptive).toInt()))
+        val rows = (items.size + columns - 1) / columns
+        val totalHeight = GridTileHeight * rows + GridSpacing * (rows - 1) + 8.dp
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(adaptive),
+            modifier = Modifier.fillMaxWidth().height(totalHeight),
+            userScrollEnabled = false,
+            horizontalArrangement = Arrangement.spacedBy(GridSpacing),
+            verticalArrangement = Arrangement.spacedBy(GridSpacing),
+            contentPadding = PaddingValues(vertical = 4.dp),
+        ) {
+            items(count = items.size, key = { index -> index }) { index ->
+                val item = items[index]
+                GridTile(item = item, height = GridTileHeight, onClick = { onItemClick(item) })
+            }
         }
     }
 }
@@ -85,7 +84,7 @@ private fun GridTile(
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
-    val imageRequest = remember(item.imageUrl, item.headers) {
+    val imageRequest = remember(item.imageUrl) {
         ImageRequest.Builder(context).data(item.imageUrl).apply {
             if (item.headers.isNotEmpty()) {
                 httpHeaders(

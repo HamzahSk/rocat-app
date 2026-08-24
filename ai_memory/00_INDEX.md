@@ -107,3 +107,4 @@ Proyek: `rocat-app` — Android app modular ala Mihon untuk mengelola & menjalan
   menjalankan APK pada emulator/device; gunakan `adb logcat -s WebViewJS-Console` untuk
   membedakan React hydration/CSP error dari kegagalan renderer/layout.
 # Tahap 37 (2026-08-19): Coil image bounding diperbaiki dengan `fillMaxWidth` + `ContentScale.FillWidth`, tinggi minimum/loading-error fallback, dan header `Referer` tetap diteruskan melalui `NetworkHeaders`. `RoCatUI.addImage(..., seamless)` backward-compatible (default `false`) untuk mode webtoon edge-to-edge tanpa card/padding/elevasi.
+# Tahap 38 (2026-08-24): Grid katalog komik memakai `GridCells.Adaptive` bergaya Mihon, tombol canvas tidak lagi raksasa/full-width, dan reader mempertahankan mode seamless/full-screen dengan Coil precision `INEXACT` + `FIT`. Build debug berhasil; task `spotlessApply` tidak tersedia di project.

@@ -36,6 +36,8 @@ import coil3.compose.AsyncImage
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
+import coil3.size.Precision
+import coil3.size.Scale
 
 /**
  * Script-driven image preview card (Tahap 18.1). Shows the image loaded with Coil plus
@@ -62,6 +64,9 @@ fun ImagePreviewCard(
     val context = LocalContext.current
     var fullScreen by remember { mutableStateOf(false) }
     var loadFailed by remember(url, headers) { mutableStateOf(false) }
+    var isLoading by remember(url, headers) { mutableStateOf(true) } // Tambahkan state loading
+    
+    // Tambahkan 'headers' ke dalam remember
     val imageRequest = remember(url, headers) {
         ImageRequest.Builder(context).data(url).apply {
             if (headers.isNotEmpty()) {
@@ -71,7 +76,7 @@ fun ImagePreviewCard(
                     }.build(),
                 )
             }
-        }.build()
+        }.precision(Precision.INEXACT).scale(Scale.FIT).build()
     }
 
     val content: @Composable () -> Unit = {
@@ -90,13 +95,32 @@ fun ImagePreviewCard(
                     model = imageRequest,
                     contentDescription = title.ifBlank { "Script image preview" },
                     contentScale = ContentScale.FillWidth,
-                    onError = { loadFailed = true },
+                    onLoading = {
+                        isLoading = true
+                        loadFailed = false
+                    },
+                    onSuccess = { 
+                        isLoading = false 
+                    },
+                    onError = { 
+                        isLoading = false
+                        loadFailed = true 
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 120.dp)
                         .then(if (seamless) Modifier else Modifier.padding(8.dp))
                         .clickable { fullScreen = true },
                 )
+                
+                // Tampilkan animasi muter-muter saat loading
+                if (isLoading) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+                
+                // Tampilkan teks error jika gagal
                 if (loadFailed) {
                     Text(
                         text = "Gagal memuat gambar",
@@ -104,6 +128,7 @@ fun ImagePreviewCard(
                         modifier = Modifier.align(Alignment.Center),
                     )
                 }
+                
                 if (allowDownload) {
                     DownloadActionButton(
                         status = downloader.status,
@@ -139,7 +164,12 @@ fun ImagePreviewCard(
                 window?.let { WindowCompat.getInsetsController(it, it.decorView).hide(WindowInsetsCompat.Type.systemBars()) }
             }
             Box(Modifier.fillMaxSize().background(Color.Black)) {
-                AsyncImage(model = imageRequest, contentDescription = title, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().clickable { fullScreen = false })
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = title,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().clickable { fullScreen = false },
+                )
             }
         }
     }
