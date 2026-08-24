@@ -3,6 +3,8 @@ name: Codex DB Fixer
 on:
   workflow_dispatch:
   push:
+    tags-ignore:
+      - '**' 
     paths:
       - "prompt.md"
 
@@ -56,23 +58,30 @@ jobs:
           fi
 
           # Cukup pakai 1 flag pamungkas ini aja sebelum 'exec'
-          codex --dangerously-bypass-approvals-and-sandbox exec "$(cat prompt.md)" 2>&1 | tee ai-response-recap.txt || true
+          codex --dangerously-bypass-approvals-and-sandbox exec "eksekusi perintah dari file prompt.md" 2>&1 | tee ai-response-recap.txt || true
 
       - name: Collect changed files and AI recap
         run: |
           git add -A
 
           mkdir -p output_artifact
+          
+          # Buat file kosong untuk mencatat file yang dihapus
+          touch output_artifact/deleted_files.txt
 
-          # Menyalin semua file proyek yang diubah oleh AI
+          # Loop semua file yang berubah, ditambah, atau dihapus
           for file in $(git diff --cached --name-only); do
             if [ -f "$file" ]; then
+              # Jika file ada (ditambah/diubah), copy ke artifact
               mkdir -p "output_artifact/$(dirname "$file")"
               cp "$file" "output_artifact/$file"
+            else
+              # Jika file tidak ada (dihapus), catat namanya
+              echo "$file" >> output_artifact/deleted_files.txt
             fi
           done
 
-          # Memasukkan file recap respons AI ke dalam artifact baru
+          # Memasukkan file recap respons AI
           if [ -f ai-response-recap.txt ]; then
             cp ai-response-recap.txt output_artifact/ai-response-recap.txt
           fi
@@ -81,3 +90,70 @@ jobs:
         with:
           name: codex-output-${{ github.sha }}
           path: output_artifact/
+
+  build_app:
+    name: Build Modified App
+    needs: codex-run
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Base Code
+        uses: actions/checkout@v4
+
+      - name: Download AI Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-output-${{ github.sha }}
+          path: ai_changes
+
+      - name: Apply AI Changes to Code
+        run: |
+          if [ -f ai_changes/deleted_files.txt ]; then
+            while IFS= read -r file; do
+              rm -f "$file"
+            done < ai_changes/deleted_files.txt
+            rm ai_changes/deleted_files.txt
+          fi
+          
+          cp -a ai_changes/. ./
+          rm -rf ai_changes
+
+      # --- BAGIAN BUILD YANG DISESUAIKAN DENGAN ROCAT ---
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Decode Keystore
+        env:
+          ENCODED_STRING: ${{ secrets.SIGNING_KEY }}
+        run: |
+          echo $ENCODED_STRING | base64 -d > keystore.jks
+
+      - name: Create keystore.properties
+        env:
+          STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "storeFile=keystore.jks" > keystore.properties
+          echo "storePassword=$STORE_PASSWORD" >> keystore.properties
+          echo "keyAlias=$KEY_ALIAS" >> keystore.properties
+          echo "keyPassword=$KEY_PASSWORD" >> keystore.properties
+
+      - name: Build Release APK
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Upload arm64 APK Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rocat-app-arm64-release
+          path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
