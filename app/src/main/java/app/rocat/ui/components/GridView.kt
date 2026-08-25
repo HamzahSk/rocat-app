@@ -84,7 +84,7 @@ private fun GridTile(
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
-    val imageRequest = remember(item.imageUrl) {
+    val imageRequest = remember(item.imageUrl, item.headers) {
         ImageRequest.Builder(context).data(item.imageUrl).apply {
             if (item.headers.isNotEmpty()) {
                 httpHeaders(

@@ -1,14 +1,19 @@
 package app.rocat
 
 import android.app.Application
+import android.content.Context
 import android.webkit.WebView
 import app.rocat.core.common.injekt.Injekt
+import app.rocat.core.common.network.NetworkHelper
 import app.rocat.crash.CrashHandler
 import app.rocat.di.AppModule
 import app.rocat.settings.SettingsRepository
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import logcat.LogcatLogger
 
-class RoApp : Application() {
+class RoApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
 
@@ -25,5 +30,15 @@ class RoApp : Application() {
         // Global crash handler: persist the stack trace to Android/data/<pkg>/files/
         // and surface a CrashActivity instead of force-closing silently.
         Thread.setDefaultUncaughtExceptionHandler(CrashHandler(this))
+    }
+
+    /** Use the same browser-grade OkHttp stack as downloads and script fetches. */
+    override fun newImageLoader(context: Context): ImageLoader {
+        val client = lazy { Injekt.get<NetworkHelper>().client() }
+        return ImageLoader.Builder(this)
+            .components {
+                add(OkHttpNetworkFetcherFactory(client::value))
+            }
+            .build()
     }
 }
