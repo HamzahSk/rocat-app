@@ -1,24 +1,23 @@
 
-### Prompt Fase 41: Perbaikan Aspect Ratio Video & Immersive Full Screen Player
+### Prompt Fase 42: Network Interception & XHR Capture pada Headless WebView
 **Role & Objective**
-Kamu adalah **Senior Android Engineer & UI/UX Designer** untuk aplikasi RoCat. Kita sekarang masuk ke **Tahap 41: Perbaikan Aspect Ratio Video & Immersive Full Screen Player**.
-**Mandatory Tasks: Pembaruan Memori & Code Quality (WAJIB DILAKUKAN PERTAMA)**
- * **Pembaruan Memori & Dokumentasi:** Patuhi instruksi sistem pada memory_prompt.md. Buat catatan tugas baru di folder ai_memory/ (misal: task_YYYYMMDD_HHMM_Fase_41.md) yang berisi rencana dan status perbaikan *video player* ini. Update ai_memory/00_INDEX.md dengan menyematkan log terbaru ini.
- * **Code Quality & Build Test:** Selama dan setelah proses modifikasi, pastikan kode rapi sesuai standar Compose. Jalankan *formatter*: bash ./gradlew spotlessApply (jika tersedia), lalu pastikan kompilasi sukses tanpa *error* dengan menjalankan: bash ./gradlew assembleDebug.
-**Analisis Masalah Utama**
-Tampilan *video player* saat ini memiliki dua kelemahan:
- 1. Saat mode *full screen*, tombol navigasi dan *system bars* Android masih terlihat (tidak *immersive*).
- 2. Dimensi video *preview* dan *player* dikunci paksa (*hardcode*) di rasio 16:9, sehingga video vertikal menjadi melebar dan cacat.
-**Execution Plan (Timebox: Maksimal 1 Jam):**
- 1. **Dinamisasi Aspect Ratio (VideoPreviewCard.kt):**
-   * Tambahkan parameter videoAspectRatio: Float = 16f / 9f pada VideoPreviewCard.
-   * Ganti *hardcode* 16f / 9f di VideoThumbnailPlaceholder agar menggunakan parameter aspectRatio tersebut.
-   * Teruskan parameter videoAspectRatio ini saat memanggil RocatVideoPlayer.
- 2. **Perbaikan Layar Penuh & Orientasi (RocatVideoPlayer.kt):**
-   * Tambahkan parameter videoAspectRatio pada komponen RocatVideoPlayer.
-   * Ganti *hardcode* rasio pada Box utama agar menggunakan ukuran dari videoAspectRatio.
-   * Ubah logika orientasi pada LaunchedEffect(isFullScreen). Jika videoAspectRatio < 1f (video vertikal), set requestedOrientation ke ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT. Jika horizontal, set ke SCREEN_ORIENTATION_SENSOR_LANDSCAPE.
- 3. **Perbaikan Immersive Mode di Dialog:**
-   * Di dalam komponen FullScreenVideoDialog, pada blok LaunchedEffect(Unit), tambahkan perintah WindowCompat.setDecorFitsSystemWindows(window, false) tepat sebelum mengatur WindowInsetsControllerCompat. Ini wajib agar *system bars* benar-benar hilang.
+Kamu adalah **Senior Android Engineer** untuk RoCat. Kita masuk ke **Tahap 42: Network Interception pada Headless WebView**. Tujuannya adalah membuat objek page mampu menangkap *response* JSON/XHR dari *background request* situs SPA.
+**Mandatory Tasks (WAJIB PERTAMA)**
+ * **Pembaruan Memori:** Buat task_YYYYMMDD_HHMM_Fase_42.md di ai_memory/ berisi log implementasi *Network Interception* ini. Update 00_INDEX.md.
+ * **Code Quality:** Pastikan *build* sukses dengan bash ./gradlew assembleDebug.
+**Analisis Masalah**
+Situs seperti SaveKit memuat tombol unduhan dari *request* JSON terpisah pasca-klik. DOM parser sering gagal karena telat atau elemen disembunyikan di Shadow DOM. Solusi terbaik adalah mencegat langsung *response* fetch/XHR di dalam WebView, lalu mengeksposnya ke *scraper* via API baru page.waitForResponse(). Karena WebViewClient.shouldInterceptRequest tidak bisa membaca *body response* secara *native*, kita harus menggunakan teknik *JS Monkey-patching*.
+**Execution Plan (Maks 1 Jam):**
+ 1. **Injeksi Interceptor JS (HeadlessWebViewManager.kt):**
+   * Buat *string* JS *polyfill* yang meng-*override* window.fetch dan XMLHttpRequest.prototype.open/send.
+   * Setiap kali *request* selesai, kirim URL dan *body response* (JSON/Text) ke Kotlin melalui fungsi bridge baru, misalnya RoCatBrowserBridge.onNetworkResponse(url, body).
+   * Suntikkan JS ini menggunakan evaluateJavascript tepat setelah WebView selesai inisialisasi atau pada onPageStarted.
+ 2. **State Management di Kotlin:**
+   * Tambahkan koleksi thread-safe (misal ConcurrentHashMap<String, String>) di HeadlessWebViewManager untuk menyimpan *intercepted responses* berdasarkan URL.
+ 3. **Ekspansi API Browserless (page):**
+   * Tambahkan fungsi page.waitForResponse(urlPattern, timeout) di JS Polyfill (RoCatBrowserWrapper.js).
+   * Fungsi ini akan melakukan *polling* ke bridge *native* untuk mengecek apakah ada *intercepted response* yang URL-nya cocok dengan urlPattern.
+   * Jika cocok, kembalikan *body response* tersebut sebagai *string* ke skrip pengguna.
 **Constraints:**
- * Pastikan transisi masuk dan keluar dari *full screen mode* berjalan lancar (*smooth*) tanpa memicu video *restart* atau menimbulkan *stuttering* parah di UI.
+ * Pastikan *monkey-patching* tidak merusak fungsi asli fetch dan XHR dari situs target.
+ * Batasi ukuran *body* yang disimpan di memori agar tidak OOM (misal, hanya simpan *response* dengan tipe application/json atau di bawah 1MB).

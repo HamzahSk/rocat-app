@@ -63,6 +63,7 @@ fun RocatVideoPlayer(
     url: String,
     isHls: Boolean = false,
     headers: Map<String, String> = emptyMap(),
+    videoAspectRatio: Float = 16f / 9f,
     modifier: Modifier = Modifier,
     autoPlay: Boolean = true,
 ) {
@@ -98,7 +99,11 @@ fun RocatVideoPlayer(
         val window = activity?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
         if (isFullScreen) {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            activity?.requestedOrientation = if (videoAspectRatio < 1f) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
             controller?.hide(WindowInsetsCompat.Type.systemBars())
         } else {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -106,7 +111,7 @@ fun RocatVideoPlayer(
         }
     }
 
-    Box(modifier = modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+    Box(modifier = modifier.fillMaxWidth().aspectRatio(videoAspectRatio)) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -159,6 +164,7 @@ private fun FullScreenVideoDialog(
         LaunchedEffect(Unit) {
             val window = dialogWindow
             if (window != null) {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
                 WindowCompat.getInsetsController(window, window.decorView).apply {
                     systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                     hide(WindowInsetsCompat.Type.systemBars())

@@ -43,6 +43,7 @@ import androidx.documentfile.provider.DocumentFile
 fun VideoPreviewCard(
     url: String,
     title: String = "",
+    videoAspectRatio: Float = 16f / 9f,
     isStreamHls: Boolean = false,
     allowDownload: Boolean = true,
     headers: Map<String, String> = emptyMap(),
@@ -64,10 +65,11 @@ fun VideoPreviewCard(
                     url = url,
                     isHls = isStreamHls,
                     headers = headers,
+                    videoAspectRatio = videoAspectRatio,
                     modifier = Modifier.padding(top = 8.dp),
                 )
             } else {
-                VideoThumbnailPlaceholder(title = title)
+                VideoThumbnailPlaceholder(title = title, aspectRatio = videoAspectRatio)
             }
 
             if (title.isNotBlank()) {
@@ -125,11 +127,11 @@ fun VideoPreviewCard(
 
 /** The 16:9 poster area shown while the video is not playing. */
 @Composable
-private fun VideoThumbnailPlaceholder(title: String) {
+private fun VideoThumbnailPlaceholder(title: String, aspectRatio: Float) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f)
+            .aspectRatio(aspectRatio)
             .padding(8.dp)
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
