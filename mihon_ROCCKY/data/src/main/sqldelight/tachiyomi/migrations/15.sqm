@@ -1,2 +1,0 @@
--- Add genres column to history table
-ALTER TABLE history ADD COLUMN genres TEXT NOT NULL DEFAULT '';

@@ -10,8 +10,11 @@ import app.rocat.di.AppModule
 import app.rocat.settings.SettingsRepository
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import logcat.LogcatLogger
+import okio.Path.Companion.toPath
 
 class RoApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
@@ -36,6 +39,19 @@ class RoApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: Context): ImageLoader {
         val client = lazy { Injekt.get<NetworkHelper>().client() }
         return ImageLoader.Builder(this)
+            // Keep large reader pages bounded on low-memory devices. Software bitmaps are
+            // requested per image below so oversized webtoon pages never become GL textures.
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizePercent(this@RoApp, 0.25)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("coil_image_cache").absolutePath.toPath())
+                    .maxSizeBytes(100L * 1024L * 1024L)
+                    .build()
+            }
             .components {
                 add(OkHttpNetworkFetcherFactory(client::value))
             }

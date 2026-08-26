@@ -33,9 +33,11 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.documentfile.provider.DocumentFile
 import coil3.compose.AsyncImage
+import coil3.compose.rememberConstraintsSizeResolver
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
+import coil3.request.allowHardware
 import coil3.size.Precision
 import coil3.size.Scale
 
@@ -62,6 +64,7 @@ fun ImagePreviewCard(
 ) {
     val downloader = rememberMediaDownloaderState()
     val context = LocalContext.current
+    val sizeResolver = rememberConstraintsSizeResolver()
     var fullScreen by remember { mutableStateOf(false) }
     var loadFailed by remember(url, headers) { mutableStateOf(false) }
     var isLoading by remember(url, headers) { mutableStateOf(true) } // Tambahkan state loading
@@ -76,7 +79,14 @@ fun ImagePreviewCard(
                     }.build(),
                 )
             }
-        }.precision(Precision.INEXACT).scale(Scale.FIT).build()
+        }
+            // Avoid GPU texture limits for very tall webtoon pages. Coil performs the
+            // bounded decode off the main thread using the measured Compose constraints.
+            .allowHardware(false)
+            .size(sizeResolver)
+            .precision(Precision.INEXACT)
+            .scale(Scale.FIT)
+            .build()
     }
 
     val content: @Composable () -> Unit = {
@@ -109,6 +119,7 @@ fun ImagePreviewCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 120.dp)
+                        .then(sizeResolver)
                         .then(if (seamless) Modifier else Modifier.padding(8.dp))
                         .clickable { fullScreen = true },
                 )
