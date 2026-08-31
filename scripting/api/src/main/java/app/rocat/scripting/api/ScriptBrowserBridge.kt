@@ -60,6 +60,9 @@ interface ScriptBrowserBridge {
      */
     fun waitForSelector(selector: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): Boolean
 
+    /** Returns a captured fetch/XHR response whose URL contains [urlPattern], or `""`. */
+    fun interceptedResponse(urlPattern: String): String = ""
+
     /**
      * Runs [script] inside the page's own JavaScript context and returns the value the
      * browser produced as a **JSON-encoded string** (WebView's `evaluateJavascript`

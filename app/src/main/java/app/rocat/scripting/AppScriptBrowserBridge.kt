@@ -25,6 +25,9 @@ class AppScriptBrowserBridge(private val manager: HeadlessWebViewManager) : Scri
     override fun waitForSelector(selector: String, timeoutMs: Long): Boolean =
         runCatching { manager.waitForSelector(selector, timeoutMs) }.getOrDefault(false)
 
+    override fun interceptedResponse(urlPattern: String): String =
+        runCatching { manager.interceptedResponse(urlPattern) }.getOrDefault("")
+
     override fun evaluate(script: String): String =
         runCatching { manager.evaluate(script) }.getOrElse { "null" }
 

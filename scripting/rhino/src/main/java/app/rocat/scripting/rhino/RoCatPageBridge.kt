@@ -53,6 +53,9 @@ internal class RoCatPageBridge(
         put("waitForSelector", this, PageFn { args ->
             browser.waitForSelector(pageArgString(args, 0), pageArgLong(args, 1, ScriptBrowserBridge.DEFAULT_TIMEOUT_MS))
         })
+        put("interceptedResponse", this, PageFn { args ->
+            browser.interceptedResponse(pageArgString(args, 0))
+        })
         put("evaluate", this, PageFn { args ->
             evaluateResult(browser.evaluate(pageArgString(args, 0)))
         })

@@ -317,6 +317,19 @@ var RoCatBrowser = (function () {
         return this.locator(selector).waitFor(timeout);
     };
 
+    Page.prototype.waitForResponse = function (urlPattern, timeout) {
+        timeout = (typeof timeout === "number") ? timeout : _defaultTimeout;
+        var pattern = String(urlPattern || "");
+        var deadline = Date.now() + timeout;
+        while (true) {
+            var body = (hasPage() && RoCatPage.interceptedResponse) ?
+                RoCatPage.interceptedResponse(pattern) : "";
+            if (body !== null && body !== undefined && body !== "") return String(body);
+            if (Date.now() >= deadline) throw new Error("Timeout waiting for response: " + pattern);
+            busyWait(100);
+        }
+    };
+
     Page.prototype.url = function () {
         var live = hasPage() ? RoCatPage.url() : "";
         return live || this._url;
@@ -441,6 +454,7 @@ var page = (function () {
     return {
         goto: function (url, options) { return current().goto(url, options); },
         waitForSelector: function (selector, timeout) { return current().waitForSelector(selector, timeout); },
+        waitForResponse: function (urlPattern, timeout) { return current().waitForResponse(urlPattern, timeout); },
         waitForTimeout: function (ms) { return current().waitForTimeout(ms); },
         click: function (selector) { return current().click(selector); },
         type: function (selector, text, delay) { return current().type(selector, text, delay); },

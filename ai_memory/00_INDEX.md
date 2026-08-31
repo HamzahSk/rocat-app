@@ -1,5 +1,7 @@
 # MEMORY INDEX — rocat-app
 
+- **Fase 42 (2026-08-26)**: [Network interception & XHR capture](task_20260826_1200_Fase_42.md) — monkey-patch fetch/XHR pada headless WebView, bridge response thread-safe, API `page.waitForResponse`, dan pembatasan payload/memori; build debug sukses.
+
 - **Fase 41 (2026-08-26)**: [Aspect ratio video & immersive full-screen player](task_20260826_0000_Fase_41.md) — rasio video dinamis, orientasi fullscreen adaptif, dan system bars dialog disembunyikan secara immersive.
 
 - **Fase 40 (2026-08-25)**: [Decode gambar panjang & memori reader](task_20260825_0000_Fase_40.md) — software bitmap + decode sesuai constraint Compose; cache Coil dibatasi 25% RAM/100 MiB; build debug sukses.

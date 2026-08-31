@@ -12,6 +12,7 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import app.rocat.core.common.util.WebViewUtil
@@ -21,6 +22,8 @@ import org.json.JSONTokener
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -45,6 +48,20 @@ class HeadlessWebViewManager(private val appContext: Context) {
     @Volatile
     private var webView: WebView? = null
 
+    private val interceptedResponses = ConcurrentHashMap<String, String>()
+    private val interceptedUrls = ConcurrentLinkedQueue<String>()
+
+    private inner class NetworkResponseBridge {
+        @JavascriptInterface
+        fun onNetworkResponse(url: String?, body: String?) {
+            if (url.isNullOrBlank() || body == null || body.toByteArray(Charsets.UTF_8).size > MAX_RESPONSE_BYTES) return
+            if (interceptedResponses.put(url, body) == null) interceptedUrls.offer(url)
+            while (interceptedResponses.size > MAX_RESPONSE_ENTRIES) {
+                interceptedUrls.poll()?.let(interceptedResponses::remove) ?: break
+            }
+        }
+    }
+
     private fun onMain(block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) block() else mainHandler.post(block)
     }
@@ -61,6 +78,7 @@ class HeadlessWebViewManager(private val appContext: Context) {
                 val wv = WebView(appContext)
                 WebViewUtil.setDefaultSettings(wv)
                 wv.setBackgroundColor(Color.TRANSPARENT)
+                wv.addJavascriptInterface(NetworkResponseBridge(), NETWORK_BRIDGE_NAME)
                 wv.webViewClient = WebViewClient()
                 webView = wv
                 ref.set(wv)
@@ -79,10 +97,16 @@ class HeadlessWebViewManager(private val appContext: Context) {
      */
     fun open(url: String, timeoutMs: Long): Boolean {
         val wv = ensureWebView() ?: return false
+        interceptedResponses.clear()
+        interceptedUrls.clear()
         val latch = CountDownLatch(1)
         onMain {
             try {
                 wv.webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                        view?.evaluateJavascript(NETWORK_INTERCEPTOR_JS, null)
+                    }
+
                     override fun onPageFinished(view: WebView?, url: String?) = latch.countDown()
                 }
                 wv.loadUrl(url)
@@ -411,6 +435,14 @@ class HeadlessWebViewManager(private val appContext: Context) {
                 return false
             }
         }
+    }
+
+    /** Returns the newest captured response whose URL contains [urlPattern]. */
+    fun interceptedResponse(urlPattern: String): String {
+        if (urlPattern.isBlank()) return ""
+        return interceptedResponses.entries
+            .lastOrNull { (url, _) -> url.contains(urlPattern, ignoreCase = true) }
+            ?.value.orEmpty()
     }
 
     /** Runs [script] in the live page and returns the raw JSON-encoded result. */
@@ -765,6 +797,53 @@ class HeadlessWebViewManager(private val appContext: Context) {
         const val VIEWPORT_SETTLE_TRIES = 3
         const val MIN_TAP_SCALE = 0.1f
         const val MAX_TAP_SCALE = 10f
+        const val MAX_RESPONSE_BYTES = 1024 * 1024
+        const val MAX_RESPONSE_ENTRIES = 64
+        const val NETWORK_BRIDGE_NAME = "RoCatBrowserBridge"
+
+        val NETWORK_INTERCEPTOR_JS = """
+            (function() {
+                if (window.__rocatNetworkInterceptorInstalled) return;
+                window.__rocatNetworkInterceptorInstalled = true;
+                var bridge = window.RoCatBrowserBridge;
+                function report(url, body) {
+                    try {
+                        if (!bridge || !bridge.onNetworkResponse || typeof body !== 'string') return;
+                        if (new Blob([body]).size > 1048576) return;
+                        bridge.onNetworkResponse(String(url || ''), body);
+                    } catch (e) {}
+                }
+                if (window.fetch) {
+                    var originalFetch = window.fetch;
+                    window.fetch = function() {
+                        var requestUrl = arguments[0] && arguments[0].url ? arguments[0].url : arguments[0];
+                        return originalFetch.apply(this, arguments).then(function(response) {
+                            try {
+                                response.clone().text().then(function(body) { report(response.url || requestUrl, body); }, function() {});
+                            } catch (e) {}
+                            return response;
+                        });
+                    };
+                }
+                var originalOpen = XMLHttpRequest.prototype.open;
+                var originalSend = XMLHttpRequest.prototype.send;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    this.__rocatRequestUrl = url;
+                    return originalOpen.apply(this, arguments);
+                };
+                XMLHttpRequest.prototype.send = function() {
+                    this.addEventListener('load', function() {
+                        try {
+                            if (!this.responseType || this.responseType === 'text' || this.responseType === 'json') {
+                                var body = this.responseType === 'json' ? JSON.stringify(this.response) : this.responseText;
+                                report(this.responseURL || this.__rocatRequestUrl, body);
+                            }
+                        } catch (e) {}
+                    });
+                    return originalSend.apply(this, arguments);
+                };
+            })();
+        """.trimIndent()
 
         fun enableWholeDocumentDrawing() {
             if (!wholeDocumentDrawingEnabled.compareAndSet(false, true)) return
