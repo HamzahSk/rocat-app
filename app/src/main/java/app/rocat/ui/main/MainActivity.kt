@@ -6,18 +6,21 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import android.os.Build
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.rocat.core.common.injekt.Injekt
 import app.rocat.settings.SettingsRepository
 import app.rocat.settings.ThemeMode
@@ -57,22 +60,46 @@ fun RoCatTheme(content: @Composable () -> Unit) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    val context = LocalContext.current
     val colors = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && dark -> dynamicDarkColorScheme(context)
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
         dark -> darkColorScheme(
-            primary = Color(0xFFB8C4FF),
-            secondary = Color(0xFFFFB2C8),
-            tertiary = Color(0xFF8ED8C4),
+            primary = Color(0xFFAFC6FF),
+            onPrimary = Color(0xFF002E69),
+            primaryContainer = Color(0xFF164789),
+            secondary = Color(0xFFC8BFFF),
+            tertiary = Color(0xFF82D7C5),
+            background = Color(0xFF0E1116),
+            surface = Color(0xFF0E1116),
+            surfaceContainer = Color(0xFF191D24),
+            surfaceContainerHigh = Color(0xFF222730),
         )
         else -> lightColorScheme(
-            primary = Color(0xFF4054A6),
-            secondary = Color(0xFF9A405F),
-            tertiary = Color(0xFF006B5B),
+            primary = Color(0xFF2458A6),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFD8E4FF),
+            secondary = Color(0xFF65558F),
+            tertiary = Color(0xFF006B5F),
+            background = Color(0xFFF7F9FC),
+            surface = Color(0xFFF7F9FC),
+            surfaceContainer = Color(0xFFEEF1F6),
+            surfaceContainerHigh = Color(0xFFE5E9F0),
         )
     }
-    MaterialTheme(colorScheme = colors) {
+    val typography = Typography(
+        headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold),
+        headlineSmall = TextStyle(fontSize = 23.sp, lineHeight = 29.sp, fontWeight = FontWeight.SemiBold),
+        titleLarge = TextStyle(fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold),
+        titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
+        bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
+        bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 21.sp),
+    )
+    val shapes = Shapes(
+        extraSmall = RoundedCornerShape(8.dp),
+        small = RoundedCornerShape(12.dp),
+        medium = RoundedCornerShape(18.dp),
+        large = RoundedCornerShape(24.dp),
+        extraLarge = RoundedCornerShape(30.dp),
+    )
+    MaterialTheme(colorScheme = colors, typography = typography, shapes = shapes) {
         Surface(modifier = Modifier.fillMaxSize()) {
             content()
         }

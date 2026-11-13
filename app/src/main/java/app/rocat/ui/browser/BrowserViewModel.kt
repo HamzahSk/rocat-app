@@ -34,6 +34,12 @@ class BrowserViewModel(
     UiState(desktopMode = settings.desktopMode),
 ) {
 
+    data class BrowserTab(
+        val id: Int,
+        val title: String = "New tab",
+        val url: String = DEFAULT_HOME,
+    )
+
     data class UiState(
         val urlInput: String = DEFAULT_HOME,
         val currentUrl: String = DEFAULT_HOME,
@@ -44,19 +50,17 @@ class BrowserViewModel(
         val isLoading: Boolean = false,
         /** Incremented on every navigation request so the UI re-loads even the same URL. */
         val loadNonce: Int = 0,
+        val tabs: List<BrowserTab> = listOf(BrowserTab(id = 0)),
+        val activeTabId: Int = 0,
     )
 
     private val _commands = MutableSharedFlow<BrowserCommand>(extraBufferCapacity = 4)
     val commands: SharedFlow<BrowserCommand> = _commands.asSharedFlow()
 
-    // Tahap 27.2: guard so a deep-link URL (app.rocat.EXTRA_URL) is only applied once
-    // per ViewModel instance — tab switches back to the browser don't re-trigger it.
-    private var initialUrlConsumed = false
+    private var nextTabId = 1
 
-    /** Applies a deep-link URL exactly once, if the instance hasn't handled one yet. */
+    /** Applies a URL supplied by app navigation (home search, deep link, or script). */
     fun acceptInitialUrl(url: String) {
-        if (initialUrlConsumed) return
-        initialUrlConsumed = true
         navigateTo(url)
     }
 
@@ -68,6 +72,7 @@ class BrowserViewModel(
                 urlInput = normalized,
                 currentUrl = normalized,
                 loadNonce = it.loadNonce + 1,
+                tabs = it.tabs.map { tab -> if (tab.id == it.activeTabId) tab.copy(url = normalized) else tab },
             )
         }
     }
@@ -84,6 +89,7 @@ class BrowserViewModel(
                 urlInput = normalized,
                 currentUrl = normalized,
                 loadNonce = it.loadNonce + 1,
+                tabs = it.tabs.map { tab -> if (tab.id == it.activeTabId) tab.copy(url = normalized) else tab },
             )
         }
     }
@@ -101,6 +107,73 @@ class BrowserViewModel(
                 isLoading = true,
                 canGoBack = navState.canGoBack,
                 canGoForward = navState.canGoForward,
+                tabs = it.tabs.map { tab ->
+                    if (tab.id == it.activeTabId && !url.isNullOrBlank()) tab.copy(url = url) else tab
+                },
+            )
+        }
+    }
+
+    fun onTitleChanged(title: String?) {
+        if (title.isNullOrBlank()) return
+        mutableState.update {
+            it.copy(tabs = it.tabs.map { tab -> if (tab.id == it.activeTabId) tab.copy(title = title) else tab })
+        }
+    }
+
+    fun newTab() {
+        val tab = BrowserTab(id = nextTabId++)
+        mutableState.update {
+            it.copy(
+                tabs = it.tabs + tab,
+                activeTabId = tab.id,
+                urlInput = tab.url,
+                currentUrl = tab.url,
+                canGoBack = false,
+                canGoForward = false,
+                loadNonce = it.loadNonce + 1,
+            )
+        }
+    }
+
+    fun selectTab(id: Int) {
+        val tab = mutableState.value.tabs.firstOrNull { it.id == id } ?: return
+        if (id == mutableState.value.activeTabId) return
+        mutableState.update {
+            it.copy(
+                activeTabId = id,
+                urlInput = tab.url,
+                currentUrl = tab.url,
+                canGoBack = false,
+                canGoForward = false,
+                loadNonce = it.loadNonce + 1,
+            )
+        }
+    }
+
+    fun closeTab(id: Int) {
+        val state = mutableState.value
+        if (state.tabs.size == 1) {
+            navigateTo(DEFAULT_HOME)
+            return
+        }
+        val index = state.tabs.indexOfFirst { it.id == id }
+        if (index < 0) return
+        val remaining = state.tabs.filterNot { it.id == id }
+        if (state.activeTabId != id) {
+            mutableState.update { it.copy(tabs = remaining) }
+            return
+        }
+        val replacement = remaining[index.coerceAtMost(remaining.lastIndex)]
+        mutableState.update {
+            it.copy(
+                tabs = remaining,
+                activeTabId = replacement.id,
+                urlInput = replacement.url,
+                currentUrl = replacement.url,
+                canGoBack = false,
+                canGoForward = false,
+                loadNonce = it.loadNonce + 1,
             )
         }
     }
@@ -120,6 +193,7 @@ class BrowserViewModel(
         mutableState.update {
             it.copy(
                 currentUrl = url?.takeIf(String::isNotBlank) ?: it.currentUrl,
+                urlInput = url?.takeIf(String::isNotBlank) ?: it.urlInput,
                 progress = 0,
                 isLoading = false,
                 canGoBack = navState.canGoBack,

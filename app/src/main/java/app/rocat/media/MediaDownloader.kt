@@ -1,11 +1,7 @@
 package app.rocat.media
 
 import androidx.documentfile.provider.DocumentFile
-import app.rocat.core.common.network.NetworkHelper
-import app.rocat.storage.StorageManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import okhttp3.Request
+import app.rocat.downloads.DownloadRepository
 import java.net.URLDecoder
 import java.util.Locale
 
@@ -17,9 +13,9 @@ import java.util.Locale
  * requests carry the browser-grade user-agent, the custom DoH DNS, the stealth headers
  * and the shared cookie jar — meaning authenticated media (e.g. scraped video behind a
  * login) downloads correctly.
- */class MediaDownloader(
-    private val networkHelper: NetworkHelper,
-    private val storageManager: StorageManager,
+ */
+class MediaDownloader(
+    private val downloads: DownloadRepository,
 ) {
 
     /**
@@ -38,32 +34,14 @@ import java.util.Locale
         mimeType: String = "application/octet-stream",
         headers: Map<String, String> = emptyMap(),
         onProgress: (Float) -> Unit = {},
-    ): String? = withContext(Dispatchers.IO) {
-        if (folder == null) return@withContext null
-        val request = Request.Builder().url(url).apply {
-            headers.forEach { (name, value) -> addHeader(name, value) }
-        }.build()
-        runCatching {
-            networkHelper.client().newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@runCatching null
-                val body = response.body ?: return@runCatching null
-                val total = body.contentLength().coerceAtLeast(0L)
-                storageManager.saveStreamToScrapeFolder(folder, fileName, mimeType) { output ->
-                    body.byteStream().use { input ->
-                        val chunk = ByteArray(DEFAULT_CHUNK_SIZE)
-                        var received = 0L
-                        while (true) {
-                            val read = input.read(chunk)
-                            if (read < 0) break
-                            output.write(chunk, 0, read)
-                            received += read
-                            if (total > 0) onProgress(received.toFloat() / total.toFloat())
-                        }
-                    }
-                }?.toString()
-            }
-        }.getOrNull()
-    }
+    ): String? = downloads.downloadNow(
+        url = url,
+        folder = folder,
+        fileName = fileName,
+        mimeType = mimeType,
+        headers = headers,
+        onProgress = onProgress,
+    )
 
     /**
      * Convenience overload deriving the file name from the URL's last path segment so
@@ -112,7 +90,4 @@ import java.util.Locale
         else -> ".bin"
     }
 
-    companion object {
-        private const val DEFAULT_CHUNK_SIZE = 8 * 1024
-    }
 }

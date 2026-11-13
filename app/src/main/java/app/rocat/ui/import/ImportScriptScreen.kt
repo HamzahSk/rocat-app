@@ -41,6 +41,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -61,11 +62,19 @@ import app.rocat.i18n.stringResource
 @Composable
 fun ImportScriptScreen(
     onBack: () -> Unit,
+    initialUrl: String? = null,
     viewModel: ImportScriptViewModel = viewModel(factory = AppViewModelFactory),
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(initialUrl) {
+        initialUrl?.takeIf { it.isNotBlank() }?.let {
+            viewModel.onUrlChange(it)
+            selectedTab = 0
+        }
+    }
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val source = runCatching {

@@ -17,6 +17,7 @@ import app.rocat.domain.script.ImportScript
 import app.rocat.domain.script.ScriptRepository
 import app.rocat.domain.script.SetScriptEnabled
 import app.rocat.domain.script.UpsertScript
+import app.rocat.downloads.DownloadRepository
 import app.rocat.i18n.I18nProvider
 import app.rocat.media.MediaDownloader
 import app.rocat.settings.SettingsRepository
@@ -91,8 +92,10 @@ override fun registerInjectables(registrar: Registrar) {
 
         registrar.addSingleton(I18nProvider(settingsRepository))
 
-        // Tahap 18.1: media downloader for ImagePreviewCard / VideoPreviewCard saves.
-        registrar.addSingleton(MediaDownloader(networkHelper, storageManager))
+        // One durable queue backs browser downloads and script-generated media.
+        val downloadRepository = DownloadRepository(app, networkHelper, storageManager)
+        registrar.addSingleton(downloadRepository)
+        registrar.addSingleton(MediaDownloader(downloadRepository))
 
         // Tahap 15.3: Room database singleton + DAOs.
         val database = Room.databaseBuilder(app, AppDatabase::class.java, DATABASE_NAME)

@@ -96,6 +96,17 @@ class StorageManager(
         return scripts.findFile(scriptId) ?: scripts.createDirectory(scriptId)
     }
 
+    /** Creates the durable user-visible folder used by the browser download library. */
+    fun createDownloadsFolder(): DocumentFile? {
+        val root = mainDocument() ?: return null
+        return root.findFile(DOWNLOADS_DIR) ?: root.createDirectory(DOWNLOADS_DIR)
+    }
+
+    /** Deletes a single SAF document previously created by this app. */
+    fun deleteDocument(uriString: String): Boolean = runCatching {
+        DocumentFile.fromSingleUri(context, Uri.parse(uriString))?.delete() == true
+    }.getOrDefault(false)
+
     /**
      * Writes a script's [content] as a physical file inside `[MainDirectory]/Scripts/[id]/`.
      * Reuses the same `DocumentFile.createFile` + `contentResolver.openOutputStream` pipeline
@@ -173,6 +184,8 @@ class StorageManager(
                 output.flush()
             } ?: return@withContext null
             target.uri
+        }.onFailure {
+            runCatching { target.delete() }
         }.getOrNull()
     }
 
@@ -217,5 +230,8 @@ class StorageManager(
 
         /** Top-level folder holding every imported script's physical `.js` file. */
         const val SCRIPTS_DIR = "Scripts"
+
+        /** Top-level folder containing downloads initiated from webpages. */
+        const val DOWNLOADS_DIR = "Downloads"
     }
 }

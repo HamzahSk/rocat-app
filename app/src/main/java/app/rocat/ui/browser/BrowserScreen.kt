@@ -2,11 +2,9 @@ package app.rocat.ui.browser
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.DownloadManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
-import android.os.Environment
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
@@ -34,6 +32,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -41,13 +42,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DesktopWindows
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -70,6 +74,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,9 +93,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.rocat.core.common.util.WebViewUtil
+import app.rocat.core.common.injekt.Injekt
 import app.rocat.di.AppViewModelFactory
+import app.rocat.domain.script.GetScripts
+import app.rocat.downloads.DownloadRepository
 import app.rocat.i18n.StringKey
 import app.rocat.i18n.stringResource
+import app.rocat.scripting.api.model.Script
+import org.json.JSONObject
 
 /** Logcat tag for JavaScript console messages piped from the page (Tahap 26.4). */
 private const val TAG_JS = "WebViewJS-Console"
@@ -118,11 +128,21 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowserScreen(initialUrl: String? = null) {
+fun BrowserScreen(
+    initialUrl: String? = null,
+    onOpenScripts: () -> Unit = {},
+    onInstallScript: (String) -> Unit = {},
+    onOpenDownloads: () -> Unit = {},
+) {
     val viewModel: BrowserViewModel = viewModel(factory = AppViewModelFactory)
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val getScripts: GetScripts = remember { Injekt.get() }
+    val downloadRepository: DownloadRepository = remember { Injekt.get() }
+    val scripts by remember(getScripts) { getScripts.subscribe() }.collectAsState(initial = emptyList())
+    val currentScripts = rememberUpdatedState(scripts)
+    val currentInstallCallback = rememberUpdatedState(onInstallScript)
 
     var webView by remember { mutableStateOf<WebView?>(null) }
     // Tahap 27.4: bumped when the renderer process dies (blank-white-page symptom) so
@@ -169,12 +189,24 @@ fun BrowserScreen(initialUrl: String? = null) {
                 if (view?.title.isNullOrBlank()) {
                     Log.w(TAG_JS, "onPageFinished with blank title for $url — page may be blank / JS not hydrated")
                 }
+                if (view != null && !url.isNullOrBlank()) {
+                    currentScripts.value
+                        .asSequence()
+                        .filter { it.enabled && it.matches.any { pattern -> urlMatches(pattern, url) } }
+                        .forEach { script ->
+                            view.evaluateJavascript(userscriptPayload(script), null)
+                        }
+                }
             }
 
             // Tahap 28.2 (sweb-master `shouldOverrideUrlLoading`): `intent://` links
             // (Play Store / app deep links) fall back to their `browser_fallback_url`
             // so the in-app browser never dead-ends on a scheme it cannot load.
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                if (url != null && isUserScriptUrl(url)) {
+                    currentInstallCallback.value(url)
+                    return true
+                }
                 if (url?.startsWith("intent://") == true) {
                     val fallbackMarker = ";S.browser_fallback_url="
                     val start = url.indexOf(fallbackMarker)
@@ -190,6 +222,9 @@ fun BrowserScreen(initialUrl: String? = null) {
                 }
                 return false
             }
+
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
+                shouldOverrideUrlLoading(view, request?.url?.toString())
 
             // Tahap 28.2 (sweb-master `onReceivedSslError`): by default WebView CANCELS
             // the load on any SSL error → blank white page. Like the reference browser,
@@ -266,7 +301,10 @@ fun BrowserScreen(initialUrl: String? = null) {
             // Tahap 27.4: log the page title to the WebViewJS tag — positive evidence
             // in the emulator CI job that the SPA actually hydrated and rendered.
             override fun onReceivedTitle(view: WebView?, title: String?) {
-                if (!title.isNullOrBlank()) Log.i(TAG_JS, "page title: $title")
+                if (!title.isNullOrBlank()) {
+                    Log.i(TAG_JS, "page title: $title")
+                    viewModel.onTitleChanged(title)
+                }
             }
 
             // Tahap 26.2 (DOCS_WEBVIEW.md §"WebChromeClient"): grant permission
@@ -301,9 +339,7 @@ fun BrowserScreen(initialUrl: String? = null) {
         fullscreenView = null
     }
 
-    // Tahap 27.2: a deep link (app.rocat.EXTRA_URL) loads the URL into the browser
-    // without any taps. The ViewModel consumes it once, so returning to this tab after
-    // browsing elsewhere does not force the same page again.
+    // Home searches, deep links and script-triggered navigation load without extra taps.
     LaunchedEffect(initialUrl) {
         initialUrl?.let(viewModel::acceptInitialUrl)
     }
@@ -352,6 +388,13 @@ fun BrowserScreen(initialUrl: String? = null) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
+            BrowserTabStrip(
+                tabs = state.tabs,
+                activeTabId = state.activeTabId,
+                onSelect = viewModel::selectTab,
+                onClose = viewModel::closeTab,
+                onNew = viewModel::newTab,
+            )
             // Material 3 top bar: back / forward, pill address bar, refresh↔stop, overflow.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -443,11 +486,9 @@ fun BrowserScreen(initialUrl: String? = null) {
                                 }
                                 view.webViewClient = webViewClient
                                 view.webChromeClient = chromeClient
-                                // Match sweb-master's download hook. Keep the WebView
-                                // session/cookies intact and hand binary downloads to the
-                                // platform handler instead of silently leaving the page.
+                                // Route every page download through the app queue so the
+                                // Downloads tab can show progress/speed and retain the SAF URI.
                                 view.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
-                                    val uri = Uri.parse(url)
                                     val guessed = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimeType)
                                     val size = if (contentLength > 0) " (${contentLength / 1024} KB)" else ""
                                     AlertDialog.Builder(context)
@@ -456,20 +497,18 @@ fun BrowserScreen(initialUrl: String? = null) {
                                         .setNegativeButton(sslCancelLabel, null)
                                         .setPositiveButton(downloadTitle) { _, _ ->
                                             val cookie = CookieManager.getInstance().getCookie(url).orEmpty()
-                                            val request = DownloadManager.Request(uri)
-                                                .setTitle(guessed)
-                                                .setDescription(uri.host.orEmpty())
-                                                .setMimeType(mimeType ?: "application/octet-stream")
-                                                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "RoCat/$guessed")
-                                                .addRequestHeader("User-Agent", userAgent ?: view.settings.userAgentString)
-                                            if (cookie.isNotBlank()) request.addRequestHeader("Cookie", cookie)
-                                            runCatching {
-                                                (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
-                                                Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
-                                            }.onFailure {
-                                                Toast.makeText(context, "Unable to start download", Toast.LENGTH_SHORT).show()
+                                            val headers = buildMap {
+                                                put("User-Agent", userAgent ?: view.settings.userAgentString)
+                                                if (cookie.isNotBlank()) put("Cookie", cookie)
+                                                view.url?.let { put("Referer", it) }
                                             }
+                                            downloadRepository.enqueue(
+                                                url = url,
+                                                fileName = guessed,
+                                                mimeType = mimeType ?: "application/octet-stream",
+                                                headers = headers,
+                                            )
+                                            Toast.makeText(context, "Download added", Toast.LENGTH_SHORT).show()
                                         }
                                         .show()
                                 }
@@ -513,6 +552,9 @@ fun BrowserScreen(initialUrl: String? = null) {
     if (showOptions) {
         BrowserOptionsSheet(
             desktopMode = state.desktopMode,
+            matchingScripts = scripts.count { script ->
+                script.enabled && script.matches.any { urlMatches(it, state.currentUrl) }
+            },
             onDismiss = { showOptions = false },
             onDesktopModeChange = viewModel::setDesktopMode,
             onReload = {
@@ -533,7 +575,61 @@ fun BrowserScreen(initialUrl: String? = null) {
                     )
                 }
             },
+            onOpenScripts = {
+                showOptions = false
+                onOpenScripts()
+            },
+            onOpenDownloads = {
+                showOptions = false
+                onOpenDownloads()
+            },
         )
+    }
+}
+
+@Composable
+private fun BrowserTabStrip(
+    tabs: List<BrowserViewModel.BrowserTab>,
+    activeTabId: Int,
+    onSelect: (Int) -> Unit,
+    onClose: (Int) -> Unit,
+    onNew: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
+    ) {
+        LazyRow(modifier = Modifier.weight(1f)) {
+            items(tabs, key = { it.id }) { tab ->
+                Surface(
+                    onClick = { onSelect(tab.id) },
+                    color = if (tab.id == activeTabId) MaterialTheme.colorScheme.surface else Color.Transparent,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.widthIn(min = 112.dp, max = 190.dp).padding(end = 6.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                    ) {
+                        Text(
+                            tab.title,
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { onClose(tab.id) }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close tab", modifier = Modifier.size(15.dp))
+                        }
+                    }
+                }
+            }
+        }
+        IconButton(onClick = onNew) {
+            Icon(Icons.Filled.Add, contentDescription = "New tab")
+        }
     }
 }
 
@@ -618,11 +714,14 @@ private fun AddressBar(
 @Composable
 private fun BrowserOptionsSheet(
     desktopMode: Boolean,
+    matchingScripts: Int,
     onDismiss: () -> Unit,
     onDesktopModeChange: (Boolean) -> Unit,
     onReload: () -> Unit,
     onCopyLink: () -> Unit,
     onOpenExternal: () -> Unit,
+    onOpenScripts: () -> Unit,
+    onOpenDownloads: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
@@ -632,6 +731,18 @@ private fun BrowserOptionsSheet(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
             )
             HorizontalDivider()
+            ListItem(
+                leadingContent = { Icon(Icons.Filled.Extension, contentDescription = null) },
+                headlineContent = { Text("Scripts on this page") },
+                supportingContent = { Text("$matchingScripts enabled and matching") },
+                modifier = Modifier.clickable(onClick = onOpenScripts),
+            )
+            ListItem(
+                leadingContent = { Icon(Icons.Filled.Download, contentDescription = null) },
+                headlineContent = { Text("Downloads") },
+                supportingContent = { Text("View progress and saved files") },
+                modifier = Modifier.clickable(onClick = onOpenDownloads),
+            )
             ListItem(
                 leadingContent = {
                     Icon(
@@ -660,10 +771,76 @@ private fun BrowserOptionsSheet(
                 modifier = Modifier.clickable(onClick = onCopyLink),
             )
             ListItem(
-                leadingContent = { Icon(Icons.Filled.OpenInNew, contentDescription = null) },
+                leadingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
                 headlineContent = { Text(stringResource(StringKey.openInBrowser)) },
                 modifier = Modifier.clickable(onClick = onOpenExternal),
             )
         }
     }
+}
+
+private fun isUserScriptUrl(url: String): Boolean {
+    val path = Uri.parse(url).lastPathSegment.orEmpty().lowercase()
+    return path.endsWith(".user.js") || path.endsWith(".userscript.js")
+}
+
+/** Tampermonkey-style wildcard matching for common @match values. */
+private fun urlMatches(pattern: String, url: String): Boolean {
+    val normalized = pattern.trim()
+    if (normalized.isBlank()) return false
+    if (normalized == "<all_urls>" || normalized == "*") return true
+    if (!normalized.contains("://") && !normalized.contains('/') && !normalized.contains('*')) {
+        val host = Uri.parse(url).host.orEmpty()
+        return host.equals(normalized, ignoreCase = true) ||
+            host.endsWith(".${normalized.removePrefix(".")}", ignoreCase = true)
+    }
+    val regex = buildString {
+        append('^')
+        normalized.forEach { char ->
+            when (char) {
+                '*' -> append(".*")
+                '.', '?', '+', '(', ')', '[', ']', '{', '}', '^', '$', '|', '\\' -> {
+                    append('\\')
+                    append(char)
+                }
+                else -> append(char)
+            }
+        }
+        append('$')
+    }
+    return runCatching { Regex(regex, RegexOption.IGNORE_CASE).matches(url) }.getOrDefault(false)
+}
+
+/** Injects a small, page-local userscript API without exposing Android objects to websites. */
+private fun userscriptPayload(script: Script): String {
+    val id = JSONObject.quote(script.id)
+    val name = JSONObject.quote(script.name)
+    val version = JSONObject.quote(script.version)
+    return """
+        (function() {
+          const __rocatNamespace = $id;
+          const GM_info = { script: { name: $name, version: $version } };
+          const GM_log = (...args) => console.log('[RoCat]', ...args);
+          const GM_addStyle = (css) => {
+            const style = document.createElement('style');
+            style.textContent = String(css);
+            (document.head || document.documentElement).appendChild(style);
+            return style;
+          };
+          const GM_openInTab = (url) => window.open(String(url), '_blank');
+          const GM_setValue = (key, value) => localStorage.setItem('__rocat_' + __rocatNamespace + '_' + key, JSON.stringify(value));
+          const GM_getValue = (key, fallback) => {
+            const value = localStorage.getItem('__rocat_' + __rocatNamespace + '_' + key);
+            if (value === null) return fallback;
+            try { return JSON.parse(value); } catch (_) { return fallback; }
+          };
+          const GM_deleteValue = (key) => localStorage.removeItem('__rocat_' + __rocatNamespace + '_' + key);
+          const unsafeWindow = window;
+          try {
+            ${script.source}
+          } catch (error) {
+            console.error('RoCat script ' + $name + ' failed', error);
+          }
+        })();
+    """.trimIndent()
 }

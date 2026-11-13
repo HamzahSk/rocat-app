@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwipeToDismissBox
@@ -87,6 +90,8 @@ fun ScriptsScreen(
     var deleteTarget by remember { mutableStateOf<Script?>(null) }
     // Tahap 17.4: per-category expand/collapse state (missing entries default to expanded).
     val expandedCategories = remember { mutableStateMapOf<String, Boolean>() }
+    var query by remember { mutableStateOf("") }
+    var enabledOnly by remember { mutableStateOf(false) }
 
     actionScript?.let { script ->
         ModalBottomSheet(onDismissRequest = { actionScript = null }) {
@@ -161,8 +166,24 @@ fun ScriptsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(StringKey.scripts)) },
+                title = {
+                    Column {
+                        Text(stringResource(StringKey.scripts))
+                        Text(
+                            "${state.scripts.count { it.enabled }} active • ${state.scripts.size} installed",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
                 actions = {
+                    IconButton(onClick = { enabledOnly = !enabledOnly }) {
+                        Icon(
+                            Icons.Filled.FilterAlt,
+                            contentDescription = "Show active scripts only",
+                            tint = if (enabledOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     IconButton(onClick = onImport) {
                         Icon(Icons.Filled.Add, contentDescription = stringResource(StringKey.addScript))
                     }
@@ -182,11 +203,38 @@ fun ScriptsScreen(
             state.scripts.isEmpty() -> EmptyScripts(onImport, innerPadding)
 
             else -> {
-                val grouped = state.scripts.groupBy { it.category }
+                val visibleScripts = state.scripts.filter { script ->
+                    (!enabledOnly || script.enabled) && (
+                        query.isBlank() || script.name.contains(query, ignoreCase = true) ||
+                            script.description.contains(query, ignoreCase = true) ||
+                            script.matches.any { it.contains(query, ignoreCase = true) }
+                    )
+                }
+                val grouped = visibleScripts.groupBy { it.category }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(innerPadding),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
                 ) {
+                    item(key = "script-search") {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                            placeholder = { Text("Search scripts or websites") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                    if (visibleScripts.isEmpty()) {
+                        item(key = "no-results") {
+                            Text(
+                                "No scripts match this filter.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(24.dp),
+                            )
+                        }
+                    }
                     grouped.forEach { (category, scripts) ->
                         item(key = "category:$category") {
                             CategoryHeader(
