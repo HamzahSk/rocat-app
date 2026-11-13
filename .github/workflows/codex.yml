@@ -26,8 +26,8 @@ jobs:
     timeout-minutes: 240
     env:
       AGENTROUTER_API_KEY: ${{ secrets.AGENTROUTER_API_KEY }}
-      CODEX_HOME: ${{ runner.temp }}/codex-home
-      CODEX_RECOVERY_DIR: ${{ runner.temp }}/codex-recovery
+      CODEX_HOME: ${{ github.workspace }}/codex-home
+      CODEX_RECOVERY_DIR: ${{ github.workspace }}/codex-recovery
       CODEX_BASE_SHA: ${{ github.sha }}
 
     steps:
