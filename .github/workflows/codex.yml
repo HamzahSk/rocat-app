@@ -26,11 +26,16 @@ jobs:
     timeout-minutes: 240
     env:
       AGENTROUTER_API_KEY: ${{ secrets.AGENTROUTER_API_KEY }}
-      CODEX_HOME: ${{ github.workspace }}/codex-home
-      CODEX_RECOVERY_DIR: ${{ github.workspace }}/codex-recovery
       CODEX_BASE_SHA: ${{ github.sha }}
 
     steps:
+      - name: Initialize runner temp paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "CODEX_HOME=$RUNNER_TEMP/codex-home" >> "$GITHUB_ENV"
+          echo "CODEX_RECOVERY_DIR=$RUNNER_TEMP/codex-recovery" >> "$GITHUB_ENV"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
