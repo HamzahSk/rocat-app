@@ -61,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -97,16 +98,18 @@ fun ScriptCanvasScreen(
     scriptId: String,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
-    viewModel: ScriptCanvasViewModel = viewModel(
-        key = "canvas_$scriptId",
-        factory = remember(scriptId) { ScriptCanvasViewModel.Factory(scriptId) },
-    ),
+    viewModel: ScriptCanvasViewModel? = null,
 ) {
-    val state by viewModel.state.collectAsState()
-    val components = viewModel.uiComponents
+    val context = LocalContext.current
+    val canvasViewModel = viewModel ?: viewModel(
+        key = "canvas_$scriptId",
+        factory = remember(scriptId, context) { ScriptCanvasViewModel.Factory(scriptId, context) },
+    )
+    val state by canvasViewModel.state.collectAsState()
+    val components = canvasViewModel.uiComponents
 
-    LaunchedEffect(viewModel.openSettingsRequest.value) {
-        if (viewModel.openSettingsRequest.value > 0) onOpenSettings()
+    LaunchedEffect(canvasViewModel.openSettingsRequest.value) {
+        if (canvasViewModel.openSettingsRequest.value > 0) onOpenSettings()
     }
 
     Scaffold(
@@ -122,7 +125,7 @@ fun ScriptCanvasScreen(
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = stringResource(StringKey.scriptSettings))
                     }
-                    IconButton(onClick = viewModel::rebuildCanvas) {
+                    IconButton(onClick = canvasViewModel::rebuildCanvas) {
                         Icon(Icons.Filled.Refresh, contentDescription = stringResource(StringKey.rebuildCanvas))
                     }
                 },
@@ -155,7 +158,7 @@ fun ScriptCanvasScreen(
                             enter = fadeIn(),
                             exit = fadeOut(),
                         ) {
-                            CanvasEmptyHint(onRefresh = viewModel::rebuildCanvas)
+                            CanvasEmptyHint(onRefresh = canvasViewModel::rebuildCanvas)
                         }
                     }
                 }
@@ -171,15 +174,15 @@ fun ScriptCanvasScreen(
                             component = component,
                             executing = state.executing,
                             executingFunction = state.executingFunction,
-                            folder = viewModel::scrapeFolder,
-                            onFieldValue = viewModel::updateFieldValue,
-                            onChecked = viewModel::updateChecked,
-                            onNumberStep = viewModel::stepNumber,
-                            onButton = viewModel::onScriptButton,
-                            onGridItem = viewModel::onGridItemClick,
-                            onLoadHistory = viewModel::loadHistory,
-                            onClearHistory = viewModel::clearHistory,
-                            historyFor = { viewModel.historyState[it] },
+                            folder = canvasViewModel::scrapeFolder,
+                            onFieldValue = canvasViewModel::updateFieldValue,
+                            onChecked = canvasViewModel::updateChecked,
+                            onNumberStep = canvasViewModel::stepNumber,
+                            onButton = canvasViewModel::onScriptButton,
+                            onGridItem = canvasViewModel::onGridItemClick,
+                            onLoadHistory = canvasViewModel::loadHistory,
+                            onClearHistory = canvasViewModel::clearHistory,
+                            historyFor = { canvasViewModel.historyState[it] },
                         )
                         if (component !is ScriptUIComponent.Image || !component.seamless) {
                             Spacer(Modifier.height(4.dp))

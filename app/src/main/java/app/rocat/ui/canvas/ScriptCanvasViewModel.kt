@@ -1,5 +1,6 @@
 package app.rocat.ui.canvas
 
+import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -14,6 +15,7 @@ import app.rocat.data.script.ScriptManager
 import app.rocat.domain.script.ExecuteScript
 import app.rocat.domain.script.GetScripts
 import app.rocat.scripting.ScriptSettingsManager
+import app.rocat.scripting.HeadlessWebViewManager
 import app.rocat.scripting.api.ScriptResult
 import app.rocat.scripting.api.ScriptBrowserBridge
 import app.rocat.scripting.api.ScriptUiBridge
@@ -57,12 +59,18 @@ import kotlinx.coroutines.flow.update
  */
 class ScriptCanvasViewModel(
     private val scriptId: String,
+    activityContext: Context? = null,
     private val getScripts: GetScripts = Injekt.get(),
     private val scriptManager: ScriptManager = Injekt.get(),
     private val storageManager: StorageManager = Injekt.get(),
     private val browserBridge: ScriptBrowserBridge = Injekt.get(),
     private val settingsManager: ScriptSettingsManager = Injekt.get(),
+    private val headlessWebViewManager: HeadlessWebViewManager = Injekt.get(),
 ) : StateViewModel<ScriptCanvasViewModel.State>(State()) {
+
+    init {
+        headlessWebViewManager.bindActivity(activityContext)
+    }
 
     data class State(
         val script: Script? = null,
@@ -552,9 +560,12 @@ class ScriptCanvasViewModel(
      * takes a constructor argument, it cannot go through the reflection-based default
      * factory; the factory closes over the id instead (mirrors ScriptDetailScreen).
      */
-    class Factory(private val scriptId: String) : ViewModelProvider.Factory {
+    class Factory(
+        private val scriptId: String,
+        private val activityContext: Context? = null,
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T =
-            ScriptCanvasViewModel(scriptId) as T
+            ScriptCanvasViewModel(scriptId, activityContext) as T
     }
 }

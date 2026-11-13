@@ -64,7 +64,9 @@ override fun registerInjectables(registrar: Registrar) {
         // and `RoCatBrowser` (general-purpose Playwright-like polyfill, Tahap 25).
         // Registered against the ScriptBrowserBridge interface so ScriptCanvasViewModel
         // can resolve it via Injekt and hand it to the engine.
-        val headlessWebViewManager = HeadlessWebViewManager(app)
+        // The current Activity is bound by ScriptCanvasViewModel when its UI is shown;
+        // the manager keeps it weakly so this application singleton cannot leak it.
+        val headlessWebViewManager = HeadlessWebViewManager(app, activityContext = null)
         registrar.addSingleton(headlessWebViewManager)
         registrar.addSingleton<ScriptBrowserBridge>(RoCatBrowserBridge(headlessWebViewManager))
 

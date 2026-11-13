@@ -1,40 +1,112 @@
 name: Codex DB Fixer
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
   push:
     paths:
       - "prompt.md"
 
+concurrency:
+  group: codex-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
+
+env:
+  CODEX_CLI_VERSION: "0.166.0"
+  CODEX_MAX_ATTEMPTS: "5"
+  CODEX_ATTEMPT_TIMEOUT_MINUTES: "45"
+  CODEX_RETRY_BASE_SECONDS: "15"
+  CODEX_RETRY_MAX_SECONDS: "120"
 
 jobs:
   codex-run:
     runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      AGENTROUTER_API_KEY: ${{ secrets.AGENTROUTER_API_KEY }}
+      CODEX_HOME: ${{ runner.temp }}/codex-home
+      CODEX_RECOVERY_DIR: ${{ runner.temp }}/codex-recovery
+      CODEX_BASE_SHA: ${{ github.sha }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - name: Restore Codex session cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CODEX_HOME }}
+          key: codex-session-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            codex-session-${{ github.run_id }}-
+
+      - name: Restore worktree checkpoint
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          checkpoint_dir="$CODEX_HOME/recovery-checkpoint"
+
+          if [[ -s "$checkpoint_dir/base-sha.txt" ]]; then
+            checkpoint_base="$(<"$checkpoint_dir/base-sha.txt")"
+            if [[ "$checkpoint_base" != "$GITHUB_SHA" ]]; then
+              echo "::error::Recovery checkpoint belongs to $checkpoint_base, not $GITHUB_SHA"
+              exit 1
+            fi
+          fi
+
+          if [[ -s "$checkpoint_dir/worktree.patch" ]]; then
+            git apply --check --binary "$checkpoint_dir/worktree.patch"
+            git apply --binary "$checkpoint_dir/worktree.patch"
+            echo "Restored tracked-file progress from the previous workflow attempt."
+          fi
+
+          if [[ -s "$checkpoint_dir/untracked-files.tar.gz" ]]; then
+            tar -xzf "$checkpoint_dir/untracked-files.tar.gz"
+            echo "Restored untracked-file progress from the previous workflow attempt."
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
           java-version-file: .github/.java-version
           distribution: temurin
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Install Codex CLI
-        run: npm install -g @openai/codex
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for attempt in 1 2 3; do
+            if timeout 5m npm install --global "@openai/codex@$CODEX_CLI_VERSION"; then
+              exit 0
+            fi
+            if (( attempt < 3 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error::Unable to install Codex CLI after three attempts"
+          exit 1
 
       - name: Configure Codex
-        # Membangun file config.toml secara dinamis menggunakan GitHub Secrets
+        shell: bash
         run: |
-          mkdir -p ~/.codex
-          cat << EOF > ~/.codex/config.toml
+          set -Eeuo pipefail
+          if [[ -z "${AGENTROUTER_API_KEY:-}" ]]; then
+            echo "::error::Repository secret AGENTROUTER_API_KEY is required"
+            exit 1
+          fi
+
+          mkdir -p "$CODEX_HOME"
+          cat > "$CODEX_HOME/config.toml" <<'EOF'
           model = "gpt-5.6-sol"
           model_provider = "agentrouter"
 
@@ -42,114 +114,143 @@ jobs:
           name = "AgentRouter"
           base_url = "https://rocckyai.rockyyrec.workers.dev/v1"
           wire_api = "responses"
-          experimental_bearer_token = "sk-1BOhosptLV2kztUELb9PhjjvYyIkIhqf7EYFbseS984Kb3FL"
+          env_key = "AGENTROUTER_API_KEY"
+          request_max_retries = 6
+          stream_max_retries = 10
+          stream_idle_timeout_ms = 300000
           EOF
 
-      - name: Check Codex Version
-        run: codex --version
-
-      - name: Run Codex
+      - name: Check Codex recovery support
+        shell: bash
         run: |
-          if [ ! -f prompt.md ]; then
-            echo "Error: prompt.md tidak ditemukan!"
-            exit 1
-          fi
+          set -Eeuo pipefail
+          codex --version
+          codex exec resume --help >/dev/null
 
-          # Cukup pakai 1 flag pamungkas ini aja sebelum 'exec'
-          codex --dangerously-bypass-approvals-and-sandbox exec "eksekusi perintah dari file prompt.md" 2>&1 | tee ai-response-recap.txt || true
+      - name: Run Codex with session recovery
+        shell: bash
+        run: bash .github/scripts/run-codex-with-recovery.sh prompt.md
 
-      - name: Collect changed files and AI recap
+      - name: Collect changed files and recovery diagnostics
+        if: always()
+        shell: bash
         run: |
+          set -Eeuo pipefail
+          mkdir -p "$CODEX_HOME"
           git add -A
 
-          mkdir -p output_artifact
-          
-          # Buat file kosong untuk mencatat file yang dihapus
-          touch output_artifact/deleted_files.txt
+          mkdir -p output_artifact codex_diagnostics
+          : > output_artifact/deleted_files.txt
 
-          # Loop semua file yang berubah, ditambah, atau dihapus
-          for file in $(git diff --cached --name-only); do
-            if [ -f "$file" ]; then
-              # Jika file ada (ditambah/diubah), copy ke artifact
+          while IFS= read -r -d '' file; do
+            if [[ -e "$file" || -L "$file" ]]; then
               mkdir -p "output_artifact/$(dirname "$file")"
-              cp "$file" "output_artifact/$file"
+              cp -a "$file" "output_artifact/$file"
             else
-              # Jika file tidak ada (dihapus), catat namanya
-              echo "$file" >> output_artifact/deleted_files.txt
+              printf '%s\n' "$file" >> output_artifact/deleted_files.txt
             fi
-          done
+          done < <(git diff --cached --name-only -z)
 
-          # Memasukkan file recap respons AI
-          if [ -f ai-response-recap.txt ]; then
-            cp ai-response-recap.txt output_artifact/ai-response-recap.txt
+          if [[ -d "$CODEX_RECOVERY_DIR" ]]; then
+            cp -a "$CODEX_RECOVERY_DIR/." codex_diagnostics/
+          fi
+          if [[ -d "$CODEX_HOME/sessions" ]]; then
+            mkdir -p codex_diagnostics/sessions
+            cp -a "$CODEX_HOME/sessions/." codex_diagnostics/sessions/
+          fi
+          if [[ -d "$CODEX_HOME/recovery-checkpoint" ]]; then
+            mkdir -p codex_diagnostics/recovery-checkpoint
+            cp -a "$CODEX_HOME/recovery-checkpoint/." codex_diagnostics/recovery-checkpoint/
           fi
 
-      - uses: actions/upload-artifact@v4
+      - name: Save Codex session cache
+        if: always()
+        uses: actions/cache/save@v4
         with:
-          name: codex-output-${{ github.sha }}
+          path: ${{ env.CODEX_HOME }}
+          key: codex-session-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload Codex changes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-output-${{ github.sha }}-${{ github.run_attempt }}
           path: output_artifact/
+          retention-days: 14
+
+      - name: Upload Codex recovery diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-recovery-${{ github.sha }}-${{ github.run_attempt }}
+          path: codex_diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
 
   build_app:
     name: Build Modified App
     needs: codex-run
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Base Code
+      - name: Checkout base code
         uses: actions/checkout@v4
 
-      - name: Download AI Artifact
+      - name: Download AI artifact
         uses: actions/download-artifact@v4
         with:
-          name: codex-output-${{ github.sha }}
+          name: codex-output-${{ github.sha }}-${{ github.run_attempt }}
           path: ai_changes
 
-      - name: Apply AI Changes to Code
+      - name: Apply AI changes to code
+        shell: bash
         run: |
-          if [ -f ai_changes/deleted_files.txt ]; then
+          set -Eeuo pipefail
+          if [[ -f ai_changes/deleted_files.txt ]]; then
             while IFS= read -r file; do
-              rm -f "$file"
+              [[ -n "$file" ]] && rm -f -- "$file"
             done < ai_changes/deleted_files.txt
             rm ai_changes/deleted_files.txt
           fi
-          
+
           cp -a ai_changes/. ./
           rm -rf ai_changes
 
-      # --- BAGIAN BUILD YANG DISESUAIKAN DENGAN ROCAT ---
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          java-version: "21"
+          distribution: temurin
           cache: gradle
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Decode Keystore
+      - name: Decode keystore
         env:
           ENCODED_STRING: ${{ secrets.SIGNING_KEY }}
-        run: |
-          echo $ENCODED_STRING | base64 -d > keystore.jks
+        run: printf '%s' "$ENCODED_STRING" | base64 --decode > keystore.jks
 
       - name: Create keystore.properties
         env:
           STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        shell: bash
         run: |
-          echo "storeFile=keystore.jks" > keystore.properties
-          echo "storePassword=$STORE_PASSWORD" >> keystore.properties
-          echo "keyAlias=$KEY_ALIAS" >> keystore.properties
-          echo "keyPassword=$KEY_PASSWORD" >> keystore.properties
+          {
+            printf 'storeFile=keystore.jks\n'
+            printf 'storePassword=%s\n' "$STORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > keystore.properties
 
-      - name: Build Release APK
+      - name: Build release APK
         run: ./gradlew :app:assembleRelease --no-daemon
 
-      - name: Upload arm64 APK Artifact
+      - name: Upload arm64 APK artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:

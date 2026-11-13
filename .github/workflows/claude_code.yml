@@ -31,7 +31,7 @@ jobs:
         env:
           # Pastikan kamu menaruh API Key dari dashboard hcnsec di GitHub Secrets!
           # Contoh isinya: sk-1234567890abcdef
-          HCNSEC_API_KEY: sk-GUWsLR2rd2tuxXP6Nzkux2kVQIZxfuLRPCzO6rx8xwTUJQiI
+          HCNSEC_API_KEY: sk-
         run: |
           mkdir -p ~/.omp/agent
           

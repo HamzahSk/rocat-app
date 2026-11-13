@@ -1,6 +1,7 @@
 package app.rocat.scripting
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -8,19 +9,25 @@ import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import app.rocat.core.common.util.WebViewUtil
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.File
 import java.io.FileOutputStream
+import java.lang.ref.WeakReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -38,15 +45,28 @@ import kotlin.math.roundToInt
  * looper via [Handler] and blocks the calling thread with a [CountDownLatch] until a
  * result is ready. The main UI thread is never blocked — only the script thread parks.
  *
- * The WebView is created lazily on first use and torn down by [close]; the instance is
- * never attached to a view hierarchy, so nothing leaks into the UI.
+ * The WebView is created lazily on first use, attached to a transparent 1x1 host when
+ * an Activity is available, and torn down by [close].
  */
-class HeadlessWebViewManager(private val appContext: Context) {
+class HeadlessWebViewManager(
+    private val appContext: Context,
+    activityContext: Context? = null,
+) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
     @Volatile
     private var webView: WebView? = null
+
+    @Volatile
+    private var activityRef = WeakReference(activityContext as? Activity)
+
+    private var containerView: FrameLayout? = null
+
+    /** Supplies the current UI host without retaining an Activity beyond its lifecycle. */
+    fun bindActivity(context: Context?) {
+        activityRef = WeakReference(context as? Activity)
+    }
 
     private val interceptedResponses = ConcurrentHashMap<String, String>()
     private val interceptedUrls = ConcurrentLinkedQueue<String>()
@@ -75,14 +95,67 @@ class HeadlessWebViewManager(private val appContext: Context) {
         onMain {
             try {
                 enableWholeDocumentDrawing()
-                val wv = WebView(appContext)
+                val activity = activityRef.get()?.takeUnless { it.isFinishing || it.isDestroyed }
+                val context = activity ?: appContext
+                val container = FrameLayout(context).apply {
+                    layoutParams = ViewGroup.LayoutParams(HEADLESS_CONTAINER_SIZE, HEADLESS_CONTAINER_SIZE)
+                    setBackgroundColor(Color.TRANSPARENT)
+                    isClickable = false
+                    isFocusable = false
+                    translationX = -HEADLESS_CONTAINER_SIZE.toFloat()
+                    translationY = -HEADLESS_CONTAINER_SIZE.toFloat()
+                }
+                val wv = WebView(context)
                 WebViewUtil.setDefaultSettings(wv)
+                wv.settings.apply {
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    loadWithOverviewMode = true
+                    useWideViewPort = true
+                    setSupportZoom(true)
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    setSupportMultipleWindows(true)
+                    javaScriptCanOpenWindowsAutomatically = true
+                    mediaPlaybackRequiresUserGesture = false
+                }
                 wv.setBackgroundColor(Color.TRANSPARENT)
                 wv.addJavascriptInterface(NetworkResponseBridge(), NETWORK_BRIDGE_NAME)
                 wv.webViewClient = WebViewClient()
+                wv.webChromeClient = object : WebChromeClient() {
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                        consoleMessage?.let { message ->
+                            Log.d(
+                                LOG_TAG,
+                                "${message.messageLevel()}: ${message.message()} " +
+                                    "(${message.sourceId()}:${message.lineNumber()})",
+                            )
+                        }
+                        return super.onConsoleMessage(consoleMessage)
+                    }
+                }
+                container.addView(
+                    wv,
+                    FrameLayout.LayoutParams(DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT),
+                )
+                activity?.window?.decorView?.let { decor ->
+                    (decor as? ViewGroup)?.addView(
+                        container,
+                        ViewGroup.LayoutParams(HEADLESS_CONTAINER_SIZE, HEADLESS_CONTAINER_SIZE),
+                    )
+                }
+                layoutWebView(wv)
+                container.post {
+                    wv.onWindowFocusChanged(true)
+                    wv.requestFocus()
+                    Log.d(LOG_TAG, getDebugInfo())
+                }
+                containerView = container
                 webView = wv
                 ref.set(wv)
-            } catch (_: Throwable) {
+                Log.d(LOG_TAG, "WebView created; attached=${wv.isAttachedToWindow}")
+            } catch (error: Throwable) {
+                Log.e(LOG_TAG, "Failed to create WebView", error)
                 ref.set(null)
             }
             latch.countDown()
@@ -107,10 +180,18 @@ class HeadlessWebViewManager(private val appContext: Context) {
                         view?.evaluateJavascript(NETWORK_INTERCEPTOR_JS, null)
                     }
 
-                    override fun onPageFinished(view: WebView?, url: String?) = latch.countDown()
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        view?.post {
+                            layoutWebView(view)
+                            view.onWindowFocusChanged(true)
+                            Log.d(LOG_TAG, "Page finished: $url\n${getDebugInfo()}")
+                        }
+                        latch.countDown()
+                    }
                 }
                 wv.loadUrl(url)
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
+                Log.e(LOG_TAG, "Open failed: $url", error)
                 latch.countDown()
             }
         }
@@ -227,6 +308,7 @@ class HeadlessWebViewManager(private val appContext: Context) {
                 wv.onWindowFocusChanged(true)
                 wv.requestFocus(View.FOCUS_DOWN)
                 wv.requestFocusFromTouch()
+                layoutWebView(wv)
             } catch (_: Throwable) {
                 // Best-effort focus hints — native dispatch still applies below.
             } finally {
@@ -437,6 +519,46 @@ class HeadlessWebViewManager(private val appContext: Context) {
         }
     }
 
+    /** Waits until an SPA has mounted meaningful body content. */
+    fun waitForRender(timeoutMs: Long = DEFAULT_RENDER_TIMEOUT_MS): Boolean {
+        val probe = """
+            (function() {
+                try {
+                    var body = document.body;
+                    if (!body) return false;
+                    var html = body.innerHTML || '';
+                    return html.length >= 100 && body.childElementCount > 0;
+                } catch (e) {
+                    return false;
+                }
+            })()
+        """.trimIndent()
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            if (evaluateJs(probe, DEFAULT_EVAL_TIMEOUT_MS) == "true") return true
+            if (System.currentTimeMillis() >= deadline) return false
+            if (!sleep(RENDER_POLL_INTERVAL_MS)) return false
+        }
+    }
+
+    /** Snapshot used to compare browser UI and script-mode renderer state in Logcat. */
+    fun getDebugInfo(): String {
+        val wv = webView ?: return "WebView: null"
+        val settings = wv.settings
+        return """
+            WebView Debug Info:
+            - Width: ${wv.width}, Height: ${wv.height}
+            - Is Attached: ${wv.isAttachedToWindow}
+            - Has Window Focus: ${wv.hasWindowFocus()}
+            - Is Focusable: ${wv.isFocusable}
+            - JS Enabled: ${settings.javaScriptEnabled}
+            - DOM Storage: ${settings.domStorageEnabled}
+            - UserAgent: ${settings.userAgentString}
+            - Load With Overview: ${settings.loadWithOverviewMode}
+            - Use Wide Viewport: ${settings.useWideViewPort}
+        """.trimIndent()
+    }
+
     /** Returns the newest captured response whose URL contains [urlPattern]. */
     fun interceptedResponse(urlPattern: String): String {
         if (urlPattern.isBlank()) return ""
@@ -460,6 +582,15 @@ class HeadlessWebViewManager(private val appContext: Context) {
         onMain {
             val wv = webView
             webView = null
+            containerView?.let { container ->
+                try {
+                    (container.parent as? ViewGroup)?.removeView(container)
+                    container.removeAllViews()
+                } catch (_: Throwable) {
+                    // The Activity may already have removed its decor hierarchy.
+                }
+            }
+            containerView = null
             wv?.let { view ->
                 try {
                     view.stopLoading()
@@ -756,6 +887,14 @@ class HeadlessWebViewManager(private val appContext: Context) {
         }
     }
 
+    private fun layoutWebView(wv: WebView) {
+        wv.measure(
+            View.MeasureSpec.makeMeasureSpec(DEFAULT_VIEWPORT_WIDTH, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(DEFAULT_VIEWPORT_HEIGHT, View.MeasureSpec.EXACTLY),
+        )
+        wv.layout(0, 0, wv.measuredWidth, wv.measuredHeight)
+    }
+
     /** Runs [js] on the main thread and returns the callback value, or null on failure. */
     private fun evaluateJs(js: String, timeoutMs: Long): String? {
         val wv = webView ?: ensureWebView() ?: return null
@@ -786,6 +925,8 @@ class HeadlessWebViewManager(private val appContext: Context) {
     private companion object {
         val wholeDocumentDrawingEnabled = AtomicBoolean(false)
         const val DEFAULT_EVAL_TIMEOUT_MS = 5_000L
+        const val DEFAULT_RENDER_TIMEOUT_MS = 10_000L
+        const val RENDER_POLL_INTERVAL_MS = 200L
         const val POLL_INTERVAL_MS = 150L
         const val SCREENSHOT_DIR = "browser_screenshots"
         const val DEFAULT_VIEWPORT_WIDTH = 1366
@@ -800,6 +941,8 @@ class HeadlessWebViewManager(private val appContext: Context) {
         const val MAX_RESPONSE_BYTES = 1024 * 1024
         const val MAX_RESPONSE_ENTRIES = 64
         const val NETWORK_BRIDGE_NAME = "RoCatBrowserBridge"
+        const val HEADLESS_CONTAINER_SIZE = 1
+        const val LOG_TAG = "HeadlessWebView"
 
         val NETWORK_INTERCEPTOR_JS = """
             (function() {
